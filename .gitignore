@@ -1,0 +1,13 @@
+# project
+.venv/
+.env/
+__pycache__/
+*.py[cod]
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+# litelabel
+build/
+dist/
+.pytest_cache/
