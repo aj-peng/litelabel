@@ -63,3 +63,28 @@ def resolve_span(
     if center is not None and end is not None:
         return 2 * center - end, end
     raise ValueError("Not enough coordinates to rebuild the box")
+
+def build_box(fields: dict, width: int, height: int, classes: list[str]) -> dict:
+    if 'classid' in fields:
+        cls = fields['classid']
+    elif fields['cname'] in classes:
+        cls = classes.index(fields['cname'])
+    else:
+        raise ValueError(f"Class name not in classes_set: {fields['cname']}")
+    if not 0 <= cls < len(classes):
+        raise ValueError(f"Class id {cls} out of range for {len(classes)} classes")
+    pixels = {}
+    for axis, size in (('x', width), ('y', height)):
+        for quantity in AXES[axis]:
+            if quantity in fields:
+                pixels[quantity] = fields[quantity]
+            elif f"n{quantity}" in fields:
+                pixels[quantity] = fields[f"n{quantity}"] * size
+    x1, x2 = resolve_span(*(pixels.get(quantity) for quantity in AXES['x']))
+    y1, y2 = resolve_span(*(pixels.get(quantity) for quantity in AXES['y']))
+    # integer pixel boxes; stops 6-digit normalized values drifting on every save
+    return {
+        'cls': cls,
+        'x1': round(x1), 'y1': round(y1), 'x2': round(x2), 'y2': round(y2),
+        'difficult': fields.get('difficult', 0),
+    }
