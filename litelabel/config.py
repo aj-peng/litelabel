@@ -42,7 +42,7 @@ def resolve_format(config: dict, key: str) -> dict:
     fmt: dict = {'fixed_filetype': 0, **defaults, **config[key]}
     if 'name' not in fmt:
         number = key.removeprefix('format')
-        fmt['name'] = f"[fmt{number}] [{', '.join(fmt.get('data_fmt', []))}]"
+        fmt['name'] = f"[fmt{number}] [{', '.join(map(str, fmt.get('data_fmt', [])))}]"
     return fmt
 
 def validate_format(config: dict, key: str, fmt: dict) -> None:
