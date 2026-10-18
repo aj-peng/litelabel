@@ -1,6 +1,7 @@
 import pytest
 
 from litelabel.config import list_formats, load_config, resolve_format, validate_format
+from litelabel.gt import write_gt_file
 
 def test_load_config(tmp_path):
     path = tmp_path / "config.yml"
@@ -94,3 +95,15 @@ def test_validate_format_rejects(settings, message):
     config = {**CONFIG, 'format9': settings}
     with pytest.raises(ValueError, match=message):
         validate_format(config, 'format9', resolve_format(config, 'format9'))
+
+def test_write_gt_file(tmp_path):
+    fmt = {'gt_file_ext': "txt", 'delimiter': " "}
+    path = tmp_path / "gt" / "dog.txt"
+    write_gt_file(path, [["0", "0.3125", "0.3125", "0.3125", "0.416667"]], fmt)
+    assert path.read_text(encoding='utf-8') == "0 0.3125 0.3125 0.3125 0.416667\n"
+
+def test_write_gt_file_csv_ignores_delimiter(tmp_path):
+    fmt = {'gt_file_ext': "csv", 'delimiter': " "}
+    path = tmp_path / "dog.csv"
+    write_gt_file(path, [["target", "100", "50"]], fmt)
+    assert path.read_text(encoding='utf-8') == "target,100,50\n"
