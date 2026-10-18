@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from litelabel.config import AXES
 
 def compute_fields(box: dict, width: int, height: int, classes: list[str], image_name: str) -> dict:
@@ -88,3 +90,15 @@ def build_box(fields: dict, width: int, height: int, classes: list[str]) -> dict
         'x1': round(x1), 'y1': round(y1), 'x2': round(x2), 'y2': round(y2),
         'difficult': fields.get('difficult', 0),
     }
+
+
+def resolve_delimiter(fmt: dict) -> str:
+    # apply the delimiter setting to txt; csv is always comma-separated
+    return fmt['delimiter'] if fmt['gt_file_ext'] == 'txt' else ','
+
+def write_gt_file(path: Path, rows: list[list[str]], fmt: dict) -> None:
+    delimiter = resolve_delimiter(fmt)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, 'w', encoding='utf-8') as file:
+        for row in rows:
+            file.write(delimiter.join(row) + '\n')
