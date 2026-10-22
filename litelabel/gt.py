@@ -102,3 +102,9 @@ def write_gt_file(path: Path, rows: list[list[str]], fmt: dict) -> None:
     with open(path, 'w', encoding='utf-8') as file:
         for row in rows:
             file.write(delimiter.join(row) + '\n')
+
+def resolve_gt_path(image_path: Path, fmt: dict, gt_path_root: str|None=None) -> Path:
+    # an absolute root replaces the image folder; a relative one goes inside it
+    gt_dir = image_path.parent / (gt_path_root or '')
+    name = image_path.parent.name if fmt['gt_merged'] else image_path.stem
+    return gt_dir / f"{name}.{fmt['gt_file_ext']}"
