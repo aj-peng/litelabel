@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from litelabel.config import list_formats, load_config, resolve_format, validate_format
-from litelabel.gt import write_gt_file, resolve_gt_path
+from litelabel.gt import write_gt_file, resolve_gt_path, read_gt_file
 
 
 def test_load_config(tmp_path):
@@ -122,3 +122,15 @@ def test_write_gt_file_csv_ignores_delimiter(tmp_path):
 def test_resolve_gt_path(gt_path_root, merged, expected):
     fmt = {'gt_merged': merged, 'gt_file_ext': "txt"}
     assert resolve_gt_path(Path("/data/dogs/dog.jpg"), fmt, gt_path_root) == Path(expected)
+
+def test_read_gt_file(tmp_path):
+    path = tmp_path / "dog.txt"
+    path.write_bytes("\ufeff0 0.3125  0.3125 0.3125 0.416667\r\n\r\n1 0.5 0.5 0.1 0.1\r\n".encode('utf-8'))
+    fmt = {'gt_file_ext': "txt", 'delimiter': " "}
+    assert read_gt_file(path, fmt) == [
+        ["0", "0.3125", "0.3125", "0.3125", "0.416667"],
+        ["1", "0.5", "0.5", "0.1", "0.1"],
+    ]
+
+def test_read_gt_file_missing(tmp_path):
+    assert read_gt_file(tmp_path / "missing.txt", {'gt_file_ext': "txt", 'delimiter': " "}) == []
