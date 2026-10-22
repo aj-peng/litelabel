@@ -1,7 +1,10 @@
+from pathlib import Path
+
 import pytest
 
 from litelabel.config import list_formats, load_config, resolve_format, validate_format
-from litelabel.gt import write_gt_file
+from litelabel.gt import write_gt_file, resolve_gt_path
+
 
 def test_load_config(tmp_path):
     path = tmp_path / "config.yml"
@@ -107,3 +110,15 @@ def test_write_gt_file_csv_ignores_delimiter(tmp_path):
     path = tmp_path / "dog.csv"
     write_gt_file(path, [["target", "100", "50"]], fmt)
     assert path.read_text(encoding='utf-8') == "target,100,50\n"
+
+@pytest.mark.parametrize('gt_path_root, merged, expected', [
+    (None, 0, "/data/dogs/dog.txt"),
+    ("", 0, "/data/dogs/dog.txt"),
+    ("labels", 0, "/data/dogs/labels/dog.txt"),
+    ("/gt", 0, "/gt/dog.txt"),
+    (None, 1, "/data/dogs/dogs.txt"),
+    ("/gt", 1, "/gt/dogs.txt"),
+])
+def test_resolve_gt_path(gt_path_root, merged, expected):
+    fmt = {'gt_merged': merged, 'gt_file_ext': "txt"}
+    assert resolve_gt_path(Path("/data/dogs/dog.jpg"), fmt, gt_path_root) == Path(expected)
