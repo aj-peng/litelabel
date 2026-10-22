@@ -108,3 +108,16 @@ def resolve_gt_path(image_path: Path, fmt: dict, gt_path_root: str|None=None) ->
     gt_dir = image_path.parent / (gt_path_root or '')
     name = image_path.parent.name if fmt['gt_merged'] else image_path.stem
     return gt_dir / f"{name}.{fmt['gt_file_ext']}"
+
+def read_gt_file(path: Path, fmt: dict) -> list[list[str]]:
+    if not path.is_file():
+        return []
+    delimiter = resolve_delimiter(fmt)
+    rows = []
+    # utf-8-sig also reads files saved with a byte order mark
+    with open(path, 'r', encoding='utf-8-sig') as file:
+        for line in file:
+            line = line.strip()
+            if line:
+                rows.append(line.split() if delimiter == ' ' else line.split(delimiter))
+    return rows
