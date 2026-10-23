@@ -121,3 +121,24 @@ def read_gt_file(path: Path, fmt: dict) -> list[list[str]]:
             if line:
                 rows.append(line.split() if delimiter == ' ' else line.split(delimiter))
     return rows
+
+def load_boxes(
+        image_path: Path,
+        width: int,
+        height: int,
+        fmt: dict,
+        classes: list[str],
+        gt_path_root: str|None=None
+) -> list[dict]:
+    gt_path = resolve_gt_path(image_path, fmt, gt_path_root)
+    boxes = []
+    for row in read_gt_file(gt_path, fmt):
+        try:
+            fields = parse_row(row, fmt['data_fmt'])
+            # a merged file holds every image's rows; keep only this image's
+            if fmt['gt_merged'] and fields['iname'] != image_path.name:
+                continue
+            boxes.append(build_box(fields, width, height, classes))
+        except ValueError as error:
+            raise ValueError(f"{gt_path}: {error}") from error
+    return boxes
