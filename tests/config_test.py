@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from litelabel.config import list_formats, load_config, resolve_format, validate_format
-from litelabel.gt import write_gt_file, resolve_gt_path, read_gt_file
+from litelabel.gt import write_gt_file, resolve_gt_path, read_gt_file, load_boxes
 
 
 def test_load_config(tmp_path):
@@ -67,7 +67,7 @@ def test_resolve_format_unknown():
     with pytest.raises(KeyError):
         resolve_format(CONFIG, 'format42')
 
-BOX = ['classid', 'x1', 'y1', 'x2', 'y2']
+BOX_FMT = ['classid', 'x1', 'y1', 'x2', 'y2']
 
 def test_validate_format_accepts_config():
     for key in list_formats(CONFIG):
@@ -84,15 +84,15 @@ def test_validate_format_accepts_data_fmt(data_fmt):
 
 @pytest.mark.parametrize('settings, message', [
     ({'data_fmt': []}, "non-empty list"),
-    ({'data_fmt': [*BOX, 'xmin']}, "unknown"),
+    ({'data_fmt': [*BOX_FMT, 'xmin']}, "unknown"),
     ({'data_fmt': ['x1', 'y1', 'x2', 'y2']}, "classid or cname"),
     ({'data_fmt': ['classid', 'x1', 'y1', 'y2']}, "along x"),
     ({'data_fmt': ['classid', 'x1', 'nx1', 'y1', 'y2']}, "along x"),
-    ({'data_fmt': BOX, 'gt_file_ext': "json"}, "gt_file_ext"),
-    ({'data_fmt': BOX, 'gt_merged': 2}, "gt_merged"),
-    ({'data_fmt': BOX, 'gt_merged': 1}, "iname"),
-    ({'data_fmt': BOX, 'gt_file_ext': "txt", 'delimiter': ""}, "delimiter"),
-    ({'data_fmt': BOX, 'classes_set': "missing_classes"}, "classes_set"),
+    ({'data_fmt': BOX_FMT, 'gt_file_ext': "json"}, "gt_file_ext"),
+    ({'data_fmt': BOX_FMT, 'gt_merged': 2}, "gt_merged"),
+    ({'data_fmt': BOX_FMT, 'gt_merged': 1}, "iname"),
+    ({'data_fmt': BOX_FMT, 'gt_file_ext': "txt", 'delimiter': ""}, "delimiter"),
+    ({'data_fmt': BOX_FMT, 'classes_set': "missing_classes"}, "classes_set"),
 ])
 def test_validate_format_rejects(settings, message):
     config = {**CONFIG, 'format9': settings}
@@ -134,3 +134,24 @@ def test_read_gt_file(tmp_path):
 
 def test_read_gt_file_missing(tmp_path):
     assert read_gt_file(tmp_path / "missing.txt", {'gt_file_ext': "txt", 'delimiter': " "}) == []
+
+YOLO = {'data_fmt': ['classid', 'ncx', 'ncy', 'nw', 'nh'], 'gt_file_ext': "txt", 'gt_merged': 0, 'delimiter': " "}
+MERGED = {'data_fmt': ['iname', 'classid', 'x1', 'y1', 'x2', 'y2'], 'gt_file_ext': "txt", 'gt_merged': 1, 'delimiter': ","}
+CLASSES = ["target", "person"]
+BOX = {'cls': 0, 'x1': 100, 'y1': 50, 'x2': 300, 'y2': 250, 'difficult': 0}
+
+def test_load_boxes_per_image(tmp_path):
+    image_path = tmp_path / "dog.jpg"
+    (tmp_path / "dog.txt").write_text("0 0.3125 0.3125 0.3125 0.416667\n", encoding='utf-8')
+    assert load_boxes(image_path, 640, 480, YOLO, CLASSES) == [BOX]
+
+def test_load_boxes_merged(tmp_path):
+    folder = tmp_path / "dogs"
+    folder.mkdir()
+    (folder / "dogs.txt").write_text("dog.jpg,0,100,50,300,250\ncat.jpg,1,10,10,20,20\n", encoding='utf-8')
+    assert load_boxes(folder / "dog.jpg", 640, 480, MERGED, CLASSES) == [BOX]
+
+def test_load_boxes_error_names_file(tmp_path):
+    (tmp_path / "dog.txt").write_text("0 abc 0.3125 0.3125 0.416667\n", encoding='utf-8')
+    with pytest.raises(ValueError, match="dog.txt"):
+        load_boxes(tmp_path / "dog.jpg", 640, 480, YOLO, CLASSES)
