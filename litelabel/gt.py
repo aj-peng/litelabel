@@ -1,4 +1,5 @@
 from pathlib import Path
+from pydoc import classname
 
 from litelabel.config import AXES
 
@@ -142,3 +143,20 @@ def load_boxes(
         except ValueError as error:
             raise ValueError(f"{gt_path}: {error}") from error
     return boxes
+
+def save_boxes(
+        image_path: Path,
+        boxes: list[dict],
+        width: int,
+        height: int,
+        fmt: dict,
+        classes: list[str],
+        gt_path_root: str|None=None
+) -> None:
+    gt_path = resolve_gt_path(image_path, fmt, gt_path_root)
+    rows = [format_row(compute_fields(box, width, height, classes, image_path.name), fmt['data_fmt']) for box in boxes]
+    if fmt['gt_merged']:
+        index = fmt['data_fmt'].index('iname')
+        others = [row for row in read_gt_file(gt_path, fmt) if row[index].strip() != image_path.name]
+        rows = sorted(others + rows, key=lambda row: row[index])
+    write_gt_file(gt_path, rows, fmt)
