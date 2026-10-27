@@ -1,5 +1,4 @@
 from pathlib import Path
-from pydoc import classname
 
 from litelabel.config import AXES
 
@@ -100,9 +99,16 @@ def resolve_delimiter(fmt: dict) -> str:
 def write_gt_file(path: Path, rows: list[list[str]], fmt: dict) -> None:
     delimiter = resolve_delimiter(fmt)
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, 'w', encoding='utf-8') as file:
-        for row in rows:
-            file.write(delimiter.join(row) + '\n')
+    # write a temporary file, then swap it in, so a failed save never leaves a half-written file
+    temp_path = path.with_name(f"{path.name}.tmp")
+    try:
+        with open(temp_path, 'w', encoding='utf-8') as file:
+            for row in rows:
+                file.write(delimiter.join(row) + '\n')
+        temp_path.replace(path)
+    except Exception:
+        temp_path.unlink(missing_ok=True)
+        raise
 
 def resolve_gt_path(image_path: Path, fmt: dict, gt_path_root: str|None=None) -> Path:
     # an absolute root replaces the image folder; a relative one goes inside it
