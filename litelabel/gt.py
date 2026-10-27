@@ -96,7 +96,6 @@ def build_box(fields: dict, width: int, height: int, classes: list[str]) -> dict
         'difficult': fields.get('difficult', 0),
     }
 
-
 def resolve_delimiter(fmt: dict) -> str:
     # apply the delimiter setting to txt; csv is always comma-separated
     return fmt['delimiter'] if fmt['gt_file_ext'] == 'txt' else ','
@@ -133,17 +132,17 @@ def load_boxes(
         gt_path_root: str|None=None
 ) -> list[dict]:
     gt_path = resolve_gt_path(image_path, fmt, gt_path_root)
-    boxes = []
-    for row in read_gt_file(gt_path, fmt):
-        try:
-            fields = parse_row(row, fmt['data_fmt'])
-            # a merged file holds every image's rows; keep only this image's
-            if fmt['gt_merged'] and fields['iname'] != image_path.name:
-                continue
-            boxes.append(build_box(fields, width, height, classes))
-        except ValueError as error:
-            raise ValueError(f"{gt_path}: {error}") from error
-    return boxes
+    try:
+        if fmt['gt_file_ext'] == 'xml':
+            entries = read_voc_file(gt_path)
+        else:
+            entries = [parse_row(row, fmt['data_fmt']) for row in read_gt_file(gt_path, fmt)]
+        # a merged file holds every image's rows; keep only this image's
+        if fmt['gt_merged']:
+            entries = [fields for fields in entries if fields['iname'] == image_path.name]
+        return [build_box(fields, width, height, classes) for fields in entries]
+    except ValueError as error:
+        raise ValueError(f"{gt_path}: {error}") from error
 
 def save_boxes(
         image_path: Path,
@@ -155,11 +154,15 @@ def save_boxes(
         gt_path_root: str|None=None
 ) -> None:
     gt_path = resolve_gt_path(image_path, fmt, gt_path_root)
+    if fmt['gt_file_ext'] == 'xml':
+        write_voc_file(gt_path, build_voc(image_path, boxes, width, height, classes))
+        return
     rows = [format_row(compute_fields(box, width, height, classes, image_path.name), fmt['data_fmt']) for box in boxes]
     if fmt['gt_merged']:
+        # replace this image's rows, keep every other image's, ordered by image name
         index = fmt['data_fmt'].index('iname')
         others = [row for row in read_gt_file(gt_path, fmt) if row[index].strip() != image_path.name]
-        rows = sorted(others + rows, key=lambda row: row[index])
+        rows = sorted(others + rows, key=lambda row: row[index].strip())
     write_gt_file(gt_path, rows, fmt)
 
 def build_voc(
@@ -182,7 +185,7 @@ def build_voc(
         ET.SubElement(obj, 'name').text = fields['cname']
         ET.SubElement(obj, 'difficult').text = format_value(fields['difficult'])
         bndbox = ET.SubElement(obj, 'bndbox')
-        for tag, key in (('xmin', 'x1'), ('ymin', 'y1'), ('xmax', 'x2'), ('ymax', 'y2')):
+        for tag, key in VOC_CORNERS:
             ET.SubElement(bndbox, tag).text = format_value(fields[key])
     return annotation
 
@@ -196,13 +199,13 @@ def read_voc_file(path: Path) -> list[dict]:
     try:
         annotation = ET.parse(path).getroot()
     except ET.ParseError as error:
-        raise ValueError(f"{path}: invalid XML: {error}") from error
+        raise ValueError(f"invalid XML: {error}") from error
     objects = []
     for number, obj in enumerate(annotation.findall('object'), start=1):
         name = obj.findtext('name')
         corners = [obj.findtext(f"bndbox/{tag}") for tag, _ in VOC_CORNERS]
         if name is None or None in corners:
-            raise ValueError(f"{path}: object {number} is missing its name or a bndbox value")
+            raise ValueError(f"object {number} is missing its name or a bndbox value")
         try:
             objects.append({
                 'cname': name.strip(),
@@ -210,5 +213,5 @@ def read_voc_file(path: Path) -> list[dict]:
                 **{key: float(value) for (_, key), value in zip(VOC_CORNERS, corners)},
             })
         except ValueError as error:
-            raise ValueError(f"{path}: object {number}: {error}") from error
+            raise ValueError(f"object {number}: {error}") from error
     return objects
