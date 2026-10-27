@@ -2,6 +2,8 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from litelabel.config import AXES
+from litelabel.utility import write_atomic
+
 
 def compute_fields(box: dict, width: int, height: int, classes: list[str], image_name: str) -> dict:
     x1, y1, x2, y2 = box['x1'], box['y1'], box['x2'], box['y2']
@@ -99,17 +101,7 @@ def resolve_delimiter(fmt: dict) -> str:
 
 def write_gt_file(path: Path, rows: list[list[str]], fmt: dict) -> None:
     delimiter = resolve_delimiter(fmt)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    # write a temporary file, then swap it in, so a failed save never leaves a half-written file
-    temp_path = path.with_name(f"{path.name}.tmp")
-    try:
-        with open(temp_path, 'w', encoding='utf-8') as file:
-            for row in rows:
-                file.write(delimiter.join(row) + '\n')
-        temp_path.replace(path)
-    except Exception:
-        temp_path.unlink(missing_ok=True)
-        raise
+    write_atomic(path, ''.join(delimiter.join(row) + '\n' for row in rows))
 
 def resolve_gt_path(image_path: Path, fmt: dict, gt_path_root: str|None=None) -> Path:
     # an absolute root replaces the image folder; a relative one goes inside it
