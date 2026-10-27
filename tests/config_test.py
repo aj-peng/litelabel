@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from litelabel.config import list_formats, load_config, resolve_format, validate_format
-from litelabel.gt import write_gt_file, resolve_gt_path, read_gt_file, load_boxes
+from litelabel.gt import write_gt_file, resolve_gt_path, read_gt_file, load_boxes, save_boxes
 
 
 def test_load_config(tmp_path):
@@ -155,3 +155,25 @@ def test_load_boxes_error_names_file(tmp_path):
     (tmp_path / "dog.txt").write_text("0 abc 0.3125 0.3125 0.416667\n", encoding='utf-8')
     with pytest.raises(ValueError, match="dog.txt"):
         load_boxes(tmp_path / "dog.jpg", 640, 480, YOLO, CLASSES)
+
+def test_save_boxes_per_image(tmp_path):
+    image_path = tmp_path / "dog.jpg"
+    save_boxes(image_path, [BOX], 640, 480, YOLO, CLASSES)
+    assert (tmp_path / "dog.txt").read_text(encoding='utf-8') == "0 0.3125 0.3125 0.3125 0.416667\n"
+    assert load_boxes(image_path, 640, 480, YOLO, CLASSES) == [BOX]
+
+def test_save_boxes_merged_keeps_other_images(tmp_path):
+    folder = tmp_path / "dogs"
+    folder.mkdir()
+    gt_path = folder / "dogs.txt"
+    gt_path.write_text("cat.jpg,1,10,10,20,20\ndog.jpg,1,0,0,5,5\nemu.jpg,0,1,1,2,2\n", encoding='utf-8')
+    save_boxes(folder / "dog.jpg", [BOX], 640, 480, MERGED, CLASSES)
+    assert gt_path.read_text(encoding='utf-8') == "cat.jpg,1,10,10,20,20\ndog.jpg,0,100,50,300,250\nemu.jpg,0,1,1,2,2\n"
+
+def test_save_boxes_merged_no_boxes(tmp_path):
+    folder = tmp_path / "dogs"
+    folder.mkdir()
+    gt_path = folder / "dogs.txt"
+    gt_path.write_text("cat.jpg,1,10,10,20,20\ndog.jpg,1,0,0,5,5\n", encoding='utf-8')
+    save_boxes(folder / "dog.jpg", [], 640, 480, MERGED, CLASSES)
+    assert gt_path.read_text(encoding='utf-8') == "cat.jpg,1,10,10,20,20\n"
