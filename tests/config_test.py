@@ -3,7 +3,8 @@ from pathlib import Path
 import pytest
 
 from litelabel.config import list_formats, load_config, resolve_format, validate_format
-from litelabel.gt import write_gt_file, resolve_gt_path, read_gt_file, load_boxes, save_boxes, build_voc, write_voc_file
+from litelabel.gt import write_gt_file, resolve_gt_path, read_gt_file, load_boxes, save_boxes, build_voc, \
+    write_voc_file, read_voc_file
 
 
 def test_load_config(tmp_path):
@@ -209,3 +210,22 @@ def test_write_voc_file(tmp_path):
     assert text.startswith("<annotation>\n  <folder>dogs</folder>\n")
     assert "    <bndbox>\n      <xmin>100</xmin>\n" in text
     assert list(tmp_path.iterdir()) == [path]
+
+def test_read_voc_file(tmp_path):
+    path = tmp_path / "dog.xml"
+    write_voc_file(path, build_voc(Path("/data/dogs/dog.jpg"), [BOX], 640, 480, CLASSES))
+    assert read_voc_file(path) == [{'cname': "target", 'difficult': 0, 'x1': 100.0, 'y1': 50.0, 'x2': 300.0, 'y2': 250.0}]
+
+def test_read_voc_file_missing(tmp_path):
+    assert read_voc_file(tmp_path / "dog.xml") == []
+
+@pytest.mark.parametrize('text, message', [
+    ("<annotation><object>", "invalid XML"),
+    ("<annotation><object><name>target</name></object></annotation>", "object 1 is missing"),
+    ("<annotation><object><name>target</name><bndbox><xmin>a</xmin><ymin>1</ymin><xmax>2</xmax><ymax>3</ymax></bndbox></object></annotation>", "object 1"),
+])
+def test_read_voc_file_errors(tmp_path, text, message):
+    path = tmp_path / "dog.xml"
+    path.write_text(text, encoding='utf-8')
+    with pytest.raises(ValueError, match=message):
+        read_voc_file(path)
