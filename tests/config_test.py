@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from litelabel.config import list_formats, load_config, resolve_format, validate_format
-from litelabel.gt import write_gt_file, resolve_gt_path, read_gt_file, load_boxes, save_boxes
+from litelabel.gt import write_gt_file, resolve_gt_path, read_gt_file, load_boxes, save_boxes, build_voc
 
 
 def test_load_config(tmp_path):
@@ -190,3 +190,14 @@ def test_write_gt_file_leaves_no_temp(tmp_path):
     path = tmp_path / "dog.txt"
     write_gt_file(path, [["0", "1"]], {'gt_file_ext': "txt", 'delimiter': " "})
     assert list(tmp_path.iterdir()) == [path]
+
+def test_build_voc():
+    annotation = build_voc(Path("/data/dogs/dog.jpg"), [BOX], 640, 480, CLASSES)
+    assert annotation.findtext('folder') == "dogs"
+    assert annotation.findtext('filename') == "dog.jpg"
+    assert annotation.findtext('size/width') == "640"
+    assert annotation.findtext('size/height') == "480"
+    obj = annotation.find('object')
+    assert obj.findtext('name') == "target"
+    assert obj.findtext('difficult') == "0"
+    assert [obj.findtext(f"bndbox/{tag}") for tag in ('xmin', 'ymin', 'xmax', 'ymax')] == ["100", "50", "300", "250"]
