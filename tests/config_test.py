@@ -177,3 +177,16 @@ def test_save_boxes_merged_no_boxes(tmp_path):
     gt_path.write_text("cat.jpg,1,10,10,20,20\ndog.jpg,1,0,0,5,5\n", encoding='utf-8')
     save_boxes(folder / "dog.jpg", [], 640, 480, MERGED, CLASSES)
     assert gt_path.read_text(encoding='utf-8') == "cat.jpg,1,10,10,20,20\n"
+
+def test_write_gt_file_failure_keeps_original(tmp_path):
+    path = tmp_path / "dog.txt"
+    path.write_text("original\n", encoding='utf-8')
+    with pytest.raises(TypeError):
+        write_gt_file(path, [["0"], [1]], {'gt_file_ext': "txt", 'delimiter': " "})
+    assert path.read_text(encoding='utf-8') == "original\n"
+    assert list(tmp_path.iterdir()) == [path]
+
+def test_write_gt_file_leaves_no_temp(tmp_path):
+    path = tmp_path / "dog.txt"
+    write_gt_file(path, [["0", "1"]], {'gt_file_ext': "txt", 'delimiter': " "})
+    assert list(tmp_path.iterdir()) == [path]
