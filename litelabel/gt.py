@@ -1,3 +1,4 @@
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from litelabel.config import AXES
@@ -166,3 +167,27 @@ def save_boxes(
         others = [row for row in read_gt_file(gt_path, fmt) if row[index].strip() != image_path.name]
         rows = sorted(others + rows, key=lambda row: row[index])
     write_gt_file(gt_path, rows, fmt)
+
+def build_voc(
+        image_path: Path,
+        boxes: list[dict],
+        width: int,
+        height: int,
+        classes: list[str],
+        depth: int=3
+) -> ET.Element:
+    annotation = ET.Element('annotation')
+    ET.SubElement(annotation, 'folder').text = image_path.parent.name
+    ET.SubElement(annotation, 'filename').text = image_path.name
+    size = ET.SubElement(annotation, 'size')
+    for tag, value in (('width', width), ('height', height), ('depth', depth)):
+        ET.SubElement(size, tag).text = str(value)
+    for box in boxes:
+        fields = compute_fields(box, width, height, classes, image_path.name)
+        obj = ET.SubElement(annotation, 'object')
+        ET.SubElement(obj, 'name').text = fields['cname']
+        ET.SubElement(obj, 'difficult').text = format_value(fields['difficult'])
+        bndbox = ET.SubElement(obj, 'bndbox')
+        for tag, key in (('xmin', 'x1'), ('ymin', 'y1'), ('xmax', 'x2'), ('ymax', 'y2')):
+            ET.SubElement(bndbox, tag).text = format_value(fields[key])
+    return annotation
