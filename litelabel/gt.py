@@ -183,3 +183,7 @@ def build_voc(
         for tag, key in (('xmin', 'x1'), ('ymin', 'y1'), ('xmax', 'x2'), ('ymax', 'y2')):
             ET.SubElement(bndbox, tag).text = format_value(fields[key])
     return annotation
+
+def write_voc_file(path: Path, annotation: ET.Element) -> None:
+    ET.indent(annotation)
+    write_atomic(path, ET.tostring(annotation, encoding='unicode') + '\n')
