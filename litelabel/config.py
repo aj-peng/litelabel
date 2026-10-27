@@ -64,6 +64,8 @@ def validate_format(config: dict, key: str, fmt: dict) -> None:
     if fmt.get('gt_merged') not in (0, 1):
         raise ValueError(f"{key}: gt_merged must be 0 or 1")
     # rows in a merged file can only be matched back to their image by name
+    if fmt['gt_merged'] == 1 and fmt['gt_file_ext'] == 'xml':
+        raise ValueError(f"{key}: xml files are one per image and can't be merged")
     if fmt['gt_merged'] == 1 and 'iname' not in data_fmt:
         raise ValueError(f"{key}: merged GT files need iname in data_fmt")
     delimiter = fmt.get('delimiter')
