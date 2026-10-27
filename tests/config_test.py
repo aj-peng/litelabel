@@ -94,6 +94,7 @@ def test_validate_format_accepts_data_fmt(data_fmt):
     ({'data_fmt': BOX_FMT, 'gt_merged': 1}, "iname"),
     ({'data_fmt': BOX_FMT, 'gt_file_ext': "txt", 'delimiter': ""}, "delimiter"),
     ({'data_fmt': BOX_FMT, 'classes_set': "missing_classes"}, "classes_set"),
+    ({'data_fmt': ['iname', *BOX_FMT], 'gt_file_ext': "xml", 'gt_merged': 1}, "can't be merged"),
 ])
 def test_validate_format_rejects(settings, message):
     config = {**CONFIG, 'format9': settings}
@@ -229,3 +230,16 @@ def test_read_voc_file_errors(tmp_path, text, message):
     path.write_text(text, encoding='utf-8')
     with pytest.raises(ValueError, match=message):
         read_voc_file(path)
+
+VOC = {'data_fmt': ['cname', 'difficult', 'x1', 'y1', 'x2', 'y2'], 'gt_file_ext': "xml", 'gt_merged': 0}
+
+def test_save_and_load_boxes_voc(tmp_path):
+    image_path = tmp_path / "dog.jpg"
+    save_boxes(image_path, [BOX], 640, 480, VOC, CLASSES)
+    assert (tmp_path / "dog.xml").is_file()
+    assert load_boxes(image_path, 640, 480, VOC, CLASSES) == [BOX]
+
+def test_load_boxes_voc_error_names_file(tmp_path):
+    (tmp_path / "dog.xml").write_text("<annotation><object>", encoding='utf-8')
+    with pytest.raises(ValueError, match="dog.xml: invalid XML"):
+        load_boxes(tmp_path / "dog.jpg", 640, 480, VOC, CLASSES)
