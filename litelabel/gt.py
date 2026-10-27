@@ -5,6 +5,8 @@ from litelabel.config import AXES
 from litelabel.utility import write_atomic
 
 
+VOC_CORNERS = (('xmin', 'x1'), ('ymin', 'y1'), ('xmax', 'x2'), ('ymax', 'y2'))
+
 def compute_fields(box: dict, width: int, height: int, classes: list[str], image_name: str) -> dict:
     x1, y1, x2, y2 = box['x1'], box['y1'], box['x2'], box['y2']
     w, h = x2 - x1, y2 - y1
@@ -187,3 +189,26 @@ def build_voc(
 def write_voc_file(path: Path, annotation: ET.Element) -> None:
     ET.indent(annotation)
     write_atomic(path, ET.tostring(annotation, encoding='unicode') + '\n')
+
+def read_voc_file(path: Path) -> list[dict]:
+    if not path.is_file():
+        return []
+    try:
+        annotation = ET.parse(path).getroot()
+    except ET.ParseError as error:
+        raise ValueError(f"{path}: invalid XML: {error}") from error
+    objects = []
+    for number, obj in enumerate(annotation.findall('object'), start=1):
+        name = obj.findtext('name')
+        corners = [obj.findtext(f"bndbox/{tag}") for tag, _ in VOC_CORNERS]
+        if name is None or None in corners:
+            raise ValueError(f"{path}: object {number} is missing its name or a bndbox value")
+        try:
+            objects.append({
+                'cname': name.strip(),
+                'difficult': int(obj.findtext('difficult') or 0),
+                **{key: float(value) for (_, key), value in zip(VOC_CORNERS, corners)},
+            })
+        except ValueError as error:
+            raise ValueError(f"{path}: object {number}: {error}") from error
+    return objects
