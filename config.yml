@@ -1,0 +1,42 @@
+## Default settings
+media_path_root: ""
+gt_path_root: ""
+auto_gt_load: 1
+gt_file_ext: "txt"
+gt_merged: 0
+delimiter: ","
+classes_set: "default_classes"
+
+## Classes sets
+default_classes: ["target"]
+
+## GUI settings
+min_object_size: 10
+box_line_width: 2
+box_color: [0, 255, 0]
+hotkey_left: "a"
+hotkey_right: "d"
+
+## GT formats (format0 - format99)
+format0:
+  name: "darknet yolo"
+  fixed_filetype: 1
+  data_fmt: [classid, ncx, ncy, nw, nh]
+  gt_file_ext: "txt"
+  gt_merged: 0
+  delimiter: " "
+
+format1:
+  name: "pascal voc"
+  fixed_filetype: 1
+  data_fmt: [cname, difficult, x1, y1, x2, y2]
+  gt_file_ext: "xml"
+  gt_merged: 0
+
+format2:
+  name: "rf-detr (yolo)"
+  fixed_filetype: 1
+  data_fmt: [classid, ncx, ncy, nw, nh]
+  gt_file_ext: "txt"
+  gt_merged: 0
+  delimiter: " "
