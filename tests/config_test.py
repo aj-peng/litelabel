@@ -3,9 +3,10 @@ from pathlib import Path
 import pytest
 
 from litelabel.config import list_formats, load_config, resolve_format, validate_format
-from litelabel.gt import write_gt_file, resolve_gt_path, read_gt_file, load_boxes, save_boxes, build_voc, \
-    write_voc_file, read_voc_file
-
+from litelabel.gt import (
+    write_gt_file, resolve_gt_path, read_gt_file, load_boxes, save_boxes, build_voc,
+    write_voc_file, read_voc_file, compute_fields, format_row, build_box, parse_row
+)
 
 def test_load_config(tmp_path):
     path = tmp_path / "config.yml"
@@ -243,3 +244,15 @@ def test_load_boxes_voc_error_names_file(tmp_path):
     (tmp_path / "dog.xml").write_text("<annotation><object>", encoding='utf-8')
     with pytest.raises(ValueError, match="dog.xml: invalid XML"):
         load_boxes(tmp_path / "dog.jpg", 640, 480, VOC, CLASSES)
+
+@pytest.mark.parametrize('data_fmt', [
+    ['classid', 'ncx', 'ncy', 'nw', 'nh'],
+    ['cname', 'difficult', 'x1', 'y1', 'x2', 'y2'],
+    ['iname', 'cname', 'x1', 'y1', 'w', 'h'],
+    ['classid', 'cx', 'cy', 'x2', 'y2', 'c=0'],
+    ['classid', 'nx1', 'ny2', 'ncx', 'nh'],
+])
+def test_round_trip(data_fmt):
+    fields = compute_fields(BOX, 640, 480, CLASSES, "dog.jpg")
+    row = format_row(fields, data_fmt)
+    assert build_box(parse_row(row, data_fmt), 640, 480, CLASSES) == BOX
