@@ -8,6 +8,17 @@ ZOOM_STEP = 1.25
 MIN_ZOOM = 0.05
 MAX_ZOOM = 40
 GRAB_MARGIN = 6
+EDGE_CURSORS = {
+    frozenset(): Qt.CursorShape.SizeAllCursor,
+    frozenset({'left'}): Qt.CursorShape.SizeHorCursor,
+    frozenset({'right'}): Qt.CursorShape.SizeHorCursor,
+    frozenset({'top'}): Qt.CursorShape.SizeVerCursor,
+    frozenset({'bottom'}): Qt.CursorShape.SizeVerCursor,
+    frozenset({'left', 'top'}): Qt.CursorShape.SizeFDiagCursor,
+    frozenset({'right', 'bottom'}): Qt.CursorShape.SizeFDiagCursor,
+    frozenset({'right', 'top'}): Qt.CursorShape.SizeBDiagCursor,
+    frozenset({'left', 'bottom'}): Qt.CursorShape.SizeBDiagCursor,
+}
 
 def find_edges(rect: QRectF, point: QPointF, margin: float) -> set[str]:
     if not rect.adjusted(-margin, -margin, margin, margin).contains(point):
@@ -45,6 +56,7 @@ class ImageView(QGraphicsView):
         self.pixmap_item = QGraphicsPixmapItem()
         self.scene().addItem(self.pixmap_item)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        self.viewport().setMouseTracking(True)
         self.config = config
         self.fitted = True
         self.current_cls = 0
@@ -94,6 +106,16 @@ class ImageView(QGraphicsView):
                     return item, edges
         return None, set()
 
+    def update_cursor(self, point: QPointF) -> None:
+        box, edges = self.grab_at(point)
+        if box:
+            shape = EDGE_CURSORS[frozenset(edges)]
+        elif self.pixmap_item.boundingRect().contains(point):
+            shape = Qt.CursorShape.CrossCursor
+        else:
+            shape = Qt.CursorShape.ArrowCursor
+        self.viewport().setCursor(shape)
+
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() != Qt.MouseButton.LeftButton or self.pixmap_item.pixmap().isNull():
             super().mousePressEvent(event)
@@ -119,6 +141,7 @@ class ImageView(QGraphicsView):
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if self.mode is None:
             super().mouseMoveEvent(event)
+            self.update_cursor(self.mapToScene(event.position().toPoint()))
             return
         point = self.scene_point(event)
         if self.mode == 'draw':
