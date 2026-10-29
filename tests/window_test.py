@@ -85,3 +85,34 @@ def test_build_pen_reads_bgr():
     pen = build_pen({**CONFIG, 'box_color': [255, 0, 0]})
     assert pen.color().getRgb()[:3] == (0, 0, 255)
     assert pen.isCosmetic()
+
+def selected_boxes(view: ImageView) -> list[tuple]:
+    return [item.rect().getCoords() for item in view.scene().selectedItems()]
+
+def click(view: ImageView, point: tuple[int, int]) -> None:
+    QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, view.mapFromScene(*point))
+
+def test_new_box_is_selected(view):
+    drag(view, (100, 50), (300, 250))
+    assert selected_boxes(view) == [(100, 50, 300, 250)]
+
+def test_click_selects_box(view):
+    drag(view, (100, 50), (300, 250))
+    drag(view, (400, 300), (500, 400))
+    click(view, (200, 150))
+    assert selected_boxes(view) == [(100, 50, 300, 250)]
+
+def test_click_empty_clears_selection(view):
+    drag(view, (100, 50), (300, 250))
+    click(view, (500, 400))
+    assert selected_boxes(view) == []
+
+def test_move_box(view):
+    drag(view, (100, 50), (300, 250))
+    drag(view, (200, 150), (250, 170))
+    assert list_boxes(view) == [(150, 70, 350, 270)]
+
+def test_move_box_stays_inside_image(view):
+    drag(view, (100, 50), (300, 250))
+    drag(view, (200, 150), (630, 470))
+    assert list_boxes(view) == [(440, 280, 640, 480)]
