@@ -1,5 +1,9 @@
+import re
 import sys
 from pathlib import Path
+
+
+IMAGE_EXTS = ('.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp')
 
 def resolve_app_directory() -> Path:
     if getattr(sys, 'frozen', False):
@@ -16,3 +20,13 @@ def write_atomic(path: Path, text: str) -> None:
     except Exception:
         temp_path.unlink(missing_ok=True)
         raise
+
+def natural_key(path: Path) -> list[str|int]:
+    return [int(part) if part.isdigit() else part.lower() for part in re.split(r'(\d+)', path.name)]
+
+def list_images(folder: Path) -> list[Path]:
+    images = [
+        path for path in folder.iterdir()
+        if path.is_file() and not path.name.startswith('.') and path.suffix.lower() in IMAGE_EXTS
+    ]
+    return sorted(images, key=natural_key)
