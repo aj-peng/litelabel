@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QImageReader, QMouseEvent, QPen, QPixmap, QResizeEvent, QWheelEvent
+from PySide6.QtGui import QColor, QImageReader, QMouseEvent, QPen, QPixmap, QResizeEvent, QWheelEvent, QKeyEvent
 from PySide6.QtWidgets import QGraphicsItem, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene, QGraphicsView
 
 ZOOM_STEP = 1.25
@@ -116,6 +116,10 @@ class ImageView(QGraphicsView):
             shape = Qt.CursorShape.ArrowCursor
         self.viewport().setCursor(shape)
 
+    def delete_selected(self) -> None:
+        for item in self.scene().selectedItems():
+            self.scene().removeItem(item)
+
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() != Qt.MouseButton.LeftButton or self.pixmap_item.pixmap().isNull():
             super().mousePressEvent(event)
@@ -181,6 +185,13 @@ class ImageView(QGraphicsView):
             self.active.setRect(self.start_rect)
         self.mode = None
         self.active = None
+
+    def keyPressEvent(self, event: QKeyEvent) -> None:
+        # Backspace is the delete key on Mac keyboards
+        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace) and self.mode is None:
+            self.delete_selected()
+        else:
+            super().keyPressEvent(event)
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         # one mouse-wheel notch is 120; trackpads send smaller steps, so zoom in proportion
