@@ -186,3 +186,17 @@ def test_hover_cursor(view, point, expected):
 def test_hover_cursor_outside_image(view):
     view.resize(1400, 700)
     assert hover(view, (-50, 200)) == Qt.CursorShape.ArrowCursor
+
+@pytest.mark.parametrize('key', [Qt.Key.Key_Delete, Qt.Key.Key_Backspace])
+def test_delete_selected_box(view, key):
+    drag(view, (100, 50), (300, 250))
+    drag(view, (400, 300), (500, 400))
+    click(view, (200, 150))
+    QTest.keyClick(view, key)
+    assert list_boxes(view) == [(400, 300, 500, 400)]
+
+def test_delete_with_nothing_selected(view):
+    drag(view, (100, 50), (300, 250))
+    click(view, (500, 400))
+    QTest.keyClick(view, Qt.Key.Key_Delete)
+    assert list_boxes(view) == [(100, 50, 300, 250)]
