@@ -205,14 +205,39 @@ FULL_CONFIG = {
     **CONFIG,
     'gt_file_ext': "txt", 'gt_merged': 0, 'delimiter': ",", 'classes_set': "default_classes",
     'default_classes': ["target"],
+    'animal_classes': ["cat", "dog", "bird"],
     'format0': {'name': "darknet yolo", 'data_fmt': ['classid', 'ncx', 'ncy', 'nw', 'nh'], 'delimiter': " "},
     'format1': {'name': "pascal voc", 'data_fmt': ['cname', 'difficult', 'x1', 'y1', 'x2', 'y2'], 'gt_file_ext': "xml"},
+    'format2': {'name': "animals", 'data_fmt': ['cname', 'x1', 'y1', 'x2', 'y2'], 'classes_set': "animal_classes"},
 }
+
+def list_items(box) -> list[str]:
+    return [box.itemText(index) for index in range(box.count())]
 
 def test_format_dropdown(app):
     window = MainWindow(FULL_CONFIG)
     names = [window.format_box.itemText(index) for index in range(window.format_box.count())]
-    assert names == ["darknet yolo", "pascal voc"]
+    assert names == ["darknet yolo", "pascal voc", "animals"]
     assert window.current_format()['gt_file_ext'] == "txt"
     window.format_box.setCurrentIndex(1)
     assert window.current_format()['gt_file_ext'] == "xml"
+
+def test_class_dropdown_follows_format(app):
+    window = MainWindow(FULL_CONFIG)
+    assert list_items(window.class_box) == ["target"]
+    window.format_box.setCurrentIndex(2)
+    assert list_items(window.class_box) == ["cat", "dog", "bird"]
+
+def test_class_dropdown_sets_new_box_class(app):
+    window = MainWindow(FULL_CONFIG)
+    window.format_box.setCurrentIndex(2)
+    window.class_box.setCurrentIndex(1)
+    assert window.view.current_cls == 1
+
+def test_class_choice_kept_or_reset(app):
+    window = MainWindow(FULL_CONFIG)
+    window.format_box.setCurrentIndex(2)
+    window.class_box.setCurrentIndex(2)
+    window.format_box.setCurrentIndex(0)
+    assert window.class_box.currentIndex() == 0
+    assert window.view.current_cls == 0
