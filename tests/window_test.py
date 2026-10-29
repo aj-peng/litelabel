@@ -4,12 +4,12 @@ import os
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 import pytest
-from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtCore import QPoint, QPointF, Qt, QRectF
 from PySide6.QtGui import QImage, QWheelEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
-from litelabel.window import BoxItem, ImageView, build_pen
+from litelabel.window import BoxItem, ImageView, build_pen, find_edges
 
 CONFIG = {'box_color': [0, 255, 0], 'box_line_width': 2, 'min_object_size': 10}
 
@@ -116,3 +116,53 @@ def test_move_box_stays_inside_image(view):
     drag(view, (100, 50), (300, 250))
     drag(view, (200, 150), (630, 470))
     assert list_boxes(view) == [(440, 280, 640, 480)]
+
+@pytest.mark.parametrize('point, expected', [
+    ((200, 150), set()),
+    ((100, 150), {'left'}),
+    ((303, 150), {'right'}),
+    ((300, 250), {'right', 'bottom'}),
+    ((400, 150), set()),
+])
+def test_find_edges(point, expected):
+    assert find_edges(QRectF(100, 50, 200, 200), QPointF(*point), 4) == expected
+
+def test_resize_edge(view):
+    drag(view, (100, 50), (300, 250))
+    drag(view, (300, 150), (350, 150))
+    assert list_boxes(view) == [(100, 50, 350, 250)]
+
+def test_resize_corner(view):
+    drag(view, (100, 50), (300, 250))
+    drag(view, (300, 250), (320, 270))
+    assert list_boxes(view) == [(100, 50, 320, 270)]
+
+def test_resize_stays_inside_image(view):
+    drag(view, (100, 50), (300, 250))
+    drag(view, (300, 150), (900, 150))
+    assert list_boxes(view) == [(100, 50, 640, 250)]
+
+def test_resize_too_small_reverts(view):
+    drag(view, (100, 50), (300, 250))
+    drag(view, (100, 150), (295, 150))
+    assert list_boxes(view) == [(100, 50, 300, 250)]
+
+def test_middle_still_moves(view):
+    drag(view, (100, 50), (300, 250))
+    drag(view, (200, 150), (210, 150))
+    assert list_boxes(view) == [(110, 50, 310, 250)]
+
+def test_wheel_zoom_tiny_image_never_reverses(app, tmp_path):
+    path = tmp_path / "tiny.png"
+    image = QImage(16, 16, QImage.Format.Format_RGB32)
+    image.fill(Qt.GlobalColor.darkCyan)
+    image.save(str(path))
+    view = ImageView(CONFIG)
+    view.resize(1000, 700)
+    view.set_image(path)
+    view.show()
+    app.processEvents()
+    fit = view.transform().m11()
+    wheel(view, 120)
+    assert view.transform().m11() >= fit
+    view.close()
