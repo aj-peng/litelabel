@@ -2,7 +2,12 @@ from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QImageReader, QMouseEvent, QPen, QPixmap, QResizeEvent, QWheelEvent, QKeyEvent
-from PySide6.QtWidgets import QGraphicsItem, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene, QGraphicsView
+from PySide6.QtWidgets import (
+    QComboBox, QGraphicsItem, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene, QGraphicsView,
+    QHBoxLayout, QLabel, QMainWindow, QVBoxLayout, QWidget,
+)
+
+from litelabel.config import load_formats
 
 ZOOM_STEP = 1.25
 MIN_ZOOM = 0.05
@@ -206,3 +211,29 @@ class ImageView(QGraphicsView):
         super().resizeEvent(event)
         if self.fitted:
             self.fit_image()
+
+class MainWindow(QMainWindow):
+    def __init__(self, config: dict):
+        super().__init__()
+        self.setWindowTitle("LiteLabel")
+        self.config = config
+        self.formats = load_formats(config)
+        self.view = ImageView(config)
+        self.format_box = QComboBox()
+        for key, fmt in self.formats.items():
+            # each entry shows the format's name and remembers its formatN key
+            self.format_box.addItem(fmt['name'], key)
+        panel = QWidget()
+        panel.setFixedWidth(240)
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.addWidget(QLabel("Format"))
+        panel_layout.addWidget(self.format_box)
+        panel_layout.addStretch()
+        central = QWidget()
+        layout = QHBoxLayout(central)
+        layout.addWidget(self.view, stretch=1)
+        layout.addWidget(panel)
+        self.setCentralWidget(central)
+
+    def current_format(self) -> dict:
+        return self.formats[self.format_box.currentData()]
