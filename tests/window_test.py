@@ -166,3 +166,23 @@ def test_wheel_zoom_tiny_image_never_reverses(app, tmp_path):
     wheel(view, 120)
     assert view.transform().m11() >= fit
     view.close()
+
+def hover(view: ImageView, point: tuple[float, float]) -> Qt.CursorShape:
+    QTest.mouseMove(view.viewport(), view.mapFromScene(*point))
+    return view.viewport().cursor().shape()
+
+@pytest.mark.parametrize('point, expected', [
+    ((200, 150), Qt.CursorShape.SizeAllCursor),
+    ((300, 150), Qt.CursorShape.SizeHorCursor),
+    ((200, 50), Qt.CursorShape.SizeVerCursor),
+    ((300, 250), Qt.CursorShape.SizeFDiagCursor),
+    ((300, 50), Qt.CursorShape.SizeBDiagCursor),
+    ((500, 400), Qt.CursorShape.CrossCursor),
+])
+def test_hover_cursor(view, point, expected):
+    drag(view, (100, 50), (300, 250))
+    assert hover(view, point) == expected
+
+def test_hover_cursor_outside_image(view):
+    view.resize(1400, 700)
+    assert hover(view, (-50, 200)) == Qt.CursorShape.ArrowCursor
