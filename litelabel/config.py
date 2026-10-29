@@ -74,3 +74,13 @@ def validate_format(config: dict, key: str, fmt: dict) -> None:
     classes_set = fmt.get('classes_set')
     if not isinstance(classes_set, str) or not isinstance(config.get(classes_set), list):
         raise ValueError(f"{key}: classes_set '{classes_set}' is not a class list in the config")
+
+def load_formats(config: dict) -> dict[str, dict]:
+    formats = {}
+    for key in list_formats(config):
+        fmt = resolve_format(config, key)
+        validate_format(config, key, fmt)
+        formats[key] = fmt
+    if not formats:
+        raise ValueError("Config has no formats (format0 ~ format99)")
+    return formats
