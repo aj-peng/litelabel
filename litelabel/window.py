@@ -220,6 +220,7 @@ class MainWindow(QMainWindow):
         self.formats = load_formats(config)
         self.view = ImageView(config)
         self.format_box = QComboBox()
+        self.class_box = QComboBox()
         for key, fmt in self.formats.items():
             # each entry shows the format's name and remembers its formatN key
             self.format_box.addItem(fmt['name'], key)
@@ -228,12 +229,33 @@ class MainWindow(QMainWindow):
         panel_layout = QVBoxLayout(panel)
         panel_layout.addWidget(QLabel("Format"))
         panel_layout.addWidget(self.format_box)
+        panel_layout.addWidget(QLabel("Class"))
+        panel_layout.addWidget(self.class_box)
         panel_layout.addStretch()
         central = QWidget()
         layout = QHBoxLayout(central)
         layout.addWidget(self.view, stretch=1)
         layout.addWidget(panel)
         self.setCentralWidget(central)
+        self.format_box.currentIndexChanged.connect(self.update_classes)
+        self.class_box.currentIndexChanged.connect(self.select_class)
+        self.update_classes()
 
     def current_format(self) -> dict:
         return self.formats[self.format_box.currentData()]
+
+    def current_classes(self) -> list[str]:
+        return self.config[self.current_format()['classes_set']]
+
+    def update_classes(self) -> None:
+        # keep the chosen class when the new format's list still has it
+        previous = self.class_box.currentIndex()
+        self.class_box.clear()
+        self.class_box.addItems(self.current_classes())
+        if 0 <= previous < self.class_box.count():
+            self.class_box.setCurrentIndex(previous)
+
+    def select_class(self, index: int) -> None:
+        # the list briefly has no selection (-1) while it is being refilled
+        if index >= 0:
+            self.view.current_cls = index
