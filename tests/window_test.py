@@ -9,7 +9,7 @@ from PySide6.QtGui import QImage, QWheelEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
-from litelabel.window import BoxItem, ImageView, build_pen, find_edges
+from litelabel.window import BoxItem, ImageView, build_pen, find_edges, MainWindow
 
 CONFIG = {'box_color': [0, 255, 0], 'box_line_width': 2, 'min_object_size': 10}
 
@@ -200,3 +200,19 @@ def test_delete_with_nothing_selected(view):
     click(view, (500, 400))
     QTest.keyClick(view, Qt.Key.Key_Delete)
     assert list_boxes(view) == [(100, 50, 300, 250)]
+
+FULL_CONFIG = {
+    **CONFIG,
+    'gt_file_ext': "txt", 'gt_merged': 0, 'delimiter': ",", 'classes_set': "default_classes",
+    'default_classes': ["target"],
+    'format0': {'name': "darknet yolo", 'data_fmt': ['classid', 'ncx', 'ncy', 'nw', 'nh'], 'delimiter': " "},
+    'format1': {'name': "pascal voc", 'data_fmt': ['cname', 'difficult', 'x1', 'y1', 'x2', 'y2'], 'gt_file_ext': "xml"},
+}
+
+def test_format_dropdown(app):
+    window = MainWindow(FULL_CONFIG)
+    names = [window.format_box.itemText(index) for index in range(window.format_box.count())]
+    assert names == ["darknet yolo", "pascal voc"]
+    assert window.current_format()['gt_file_ext'] == "txt"
+    window.format_box.setCurrentIndex(1)
+    assert window.current_format()['gt_file_ext'] == "xml"
