@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from litelabel.config import list_formats, load_config, resolve_format, validate_format
+from litelabel.config import list_formats, load_config, resolve_format, validate_format, load_formats
 from litelabel.gt import (
     write_gt_file, resolve_gt_path, read_gt_file, load_boxes, save_boxes, build_voc,
     write_voc_file, read_voc_file, compute_fields, format_row, build_box, parse_row
@@ -256,3 +256,16 @@ def test_round_trip(data_fmt):
     fields = compute_fields(BOX, 640, 480, CLASSES, "dog.jpg")
     row = format_row(fields, data_fmt)
     assert build_box(parse_row(row, data_fmt), 640, 480, CLASSES) == BOX
+
+def test_load_formats():
+    formats = load_formats(CONFIG)
+    assert list(formats) == ['format0', 'format1', 'format2', 'format5', 'format10']
+    assert formats['format1']['delimiter'] == ","
+
+def test_load_formats_rejects_broken_format():
+    with pytest.raises(ValueError, match="format9"):
+        load_formats({**CONFIG, 'format9': {'data_fmt': []}})
+
+def test_load_formats_none():
+    with pytest.raises(ValueError, match="no formats"):
+        load_formats({'default_classes': ["target"]})
