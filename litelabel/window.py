@@ -78,6 +78,8 @@ class ImageView(QGraphicsView):
         image = reader.read()
         if image.isNull():
             raise ValueError(f"Could not open image {path}: {reader.errorString()}")
+        self.clear_boxes()
+        self.pixmap_item.setPixmap(QPixmap.fromImage(image))
         self.pixmap_item.setPixmap(QPixmap.fromImage(image))
         self.setSceneRect(self.pixmap_item.boundingRect())
         self.fit_image()
@@ -85,6 +87,42 @@ class ImageView(QGraphicsView):
     def fit_image(self) -> None:
         self.fitted = True
         self.fitInView(self.pixmap_item, Qt.AspectRatioMode.KeepAspectRatio)
+
+    def image_size(self) -> tuple[int, int]:
+        pixmap = self.pixmap_item.pixmap()
+        return pixmap.width(), pixmap.height()
+
+    def add_box(self, rect: QRectF, cls: int, difficult: int=0) -> BoxItem:
+        box = BoxItem(rect, cls, difficult)
+        box.setPen(build_pen(self.config))
+        self.scene().addItem(box)
+        return box
+
+    def list_box_items(self) -> list[BoxItem]:
+        return [item for item in reversed(self.scene().items()) if isinstance(item, BoxItem)]
+
+    def clear_boxes(self) -> None:
+        for box in self.list_box_items():
+            self.scene().removeItem(box)
+        self.mode = None
+        self.active = None
+
+    def get_boxes(self) -> list[dict]:
+        boxes = []
+        for item in self.list_box_items():
+            rect = item.rect()
+            boxes.append({
+                'cls': item.cls,
+                'x1': round(rect.left()), 'y1': round(rect.top()), 'x2': round(rect.right()), 'y2': round(rect.bottom()),
+                'difficult': item.difficult,
+            })
+        return boxes
+
+    def set_boxes(self, boxes: list[dict]) -> None:
+        self.clear_boxes()
+        for box in boxes:
+            rect = QRectF(QPointF(box['x1'], box['y1']), QPointF(box['x2'], box['y2']))
+            self.add_box(rect, box['cls'], box.get('difficult', 0))
 
     def scene_point(self, event: QMouseEvent) -> QPointF:
         point = self.mapToScene(event.position().toPoint())
@@ -138,7 +176,7 @@ class ImageView(QGraphicsView):
             box.setSelected(True)
         else:
             self.mode = 'draw'
-            self.active = BoxItem(QRectF(self.drag_start, self.drag_start), self.current_cls)
+            self.active = self.add_box(QRectF(self.drag_start, self.drag_start), self.current_cls)
             self.active.setPen(build_pen(self.config))
             self.scene().addItem(self.active)
         self.start_rect = self.active.rect()
