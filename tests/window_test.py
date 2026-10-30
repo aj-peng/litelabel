@@ -9,6 +9,7 @@ from PySide6.QtGui import QImage, QWheelEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
+from litelabel.gt import load_boxes, save_boxes
 from litelabel.window import BoxItem, ImageView, build_pen, find_edges, MainWindow
 
 CONFIG = {'box_color': [0, 255, 0], 'box_line_width': 2, 'min_object_size': 10}
@@ -241,3 +242,39 @@ def test_class_choice_kept_or_reset(app):
     window.format_box.setCurrentIndex(0)
     assert window.class_box.currentIndex() == 0
     assert window.view.current_cls == 0
+
+BOX = {'cls': 0, 'x1': 100, 'y1': 50, 'x2': 300, 'y2': 250, 'difficult': 0}
+YOLO = {'data_fmt': ['classid', 'ncx', 'ncy', 'nw', 'nh'], 'gt_file_ext': "txt", 'gt_merged': 0, 'delimiter': " "}
+
+def test_image_size(view):
+    assert view.image_size() == (640, 480)
+
+def test_get_boxes_after_drawing(view):
+    drag(view, (100, 50), (300, 250))
+    assert view.get_boxes() == [BOX]
+
+def test_set_boxes_round_trip(view):
+    boxes = [BOX, {'cls': 1, 'x1': 10, 'y1': 20, 'x2': 30, 'y2': 40, 'difficult': 1}]
+    view.set_boxes(boxes)
+    assert view.get_boxes() == boxes
+
+def test_set_boxes_replaces_existing(view):
+    drag(view, (400, 300), (500, 400))
+    view.set_boxes([BOX])
+    assert view.get_boxes() == [BOX]
+
+def test_set_image_clears_boxes(view, tmp_path):
+    view.set_boxes([BOX])
+    path = tmp_path / "cat.png"
+    QImage(320, 240, QImage.Format.Format_RGB32).save(str(path))
+    view.set_image(path)
+    assert view.get_boxes() == []
+
+def test_save_and_reload_drawn_box(view, tmp_path):
+    drag(view, (100, 50), (300, 250))
+    image_path = tmp_path / "dog.png"
+    width, height = view.image_size()
+    save_boxes(image_path, view.get_boxes(), width, height, YOLO, ["target"])
+    view.set_image(image_path)
+    view.set_boxes(load_boxes(image_path, width, height, YOLO, ["target"]))
+    assert view.get_boxes() == [BOX]
