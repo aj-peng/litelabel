@@ -15,6 +15,7 @@ def main() -> None:
     window = MainWindow(load_config())
     window.resize(1200, 800)
     window.show()
+    window.open_image(args.image)
     sys.exit(app.exec())
 
 if __name__ == "__main__":
