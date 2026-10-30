@@ -7,7 +7,7 @@ import pytest
 from PySide6.QtCore import QPoint, QPointF, Qt, QRectF
 from PySide6.QtGui import QImage, QWheelEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from litelabel.gt import load_boxes, save_boxes
 from litelabel.window import BoxItem, ImageView, build_pen, find_edges, MainWindow
@@ -278,3 +278,54 @@ def test_save_and_reload_drawn_box(view, tmp_path):
     view.set_image(image_path)
     view.set_boxes(load_boxes(image_path, width, height, YOLO, ["target"]))
     assert view.get_boxes() == [BOX]
+
+@pytest.fixture
+def window(app, tmp_path):
+    path = tmp_path / "dog.png"
+    QImage(640, 480, QImage.Format.Format_RGB32).save(str(path))
+    window = MainWindow(FULL_CONFIG)
+    window.resize(1200, 800)
+    window.show()
+    app.processEvents()
+    yield window
+    window.close()
+
+@pytest.fixture
+def warnings(monkeypatch):
+    # record message boxes instead of opening them, which would block the test
+    shown = []
+    monkeypatch.setattr(QMessageBox, 'warning', lambda parent, title, text: shown.append(title))
+    return shown
+
+def test_open_image_loads_gt(window, tmp_path):
+    (tmp_path / "dog.txt").write_text("0 0.3125 0.3125 0.3125 0.416667\n", encoding='utf-8')
+    window.open_image(tmp_path / "dog.png")
+    assert window.view.get_boxes() == [BOX]
+
+def test_open_image_without_auto_load(app, tmp_path):
+    path = tmp_path / "dog.png"
+    QImage(640, 480, QImage.Format.Format_RGB32).save(str(path))
+    (tmp_path / "dog.txt").write_text("0 0.3125 0.3125 0.3125 0.416667\n", encoding='utf-8')
+    window = MainWindow({**FULL_CONFIG, 'auto_gt_load': 0})
+    window.open_image(path)
+    assert window.view.get_boxes() == []
+
+def test_save_gt(window, tmp_path):
+    window.open_image(tmp_path / "dog.png")
+    window.view.set_boxes([BOX])
+    window.save_gt()
+    assert (tmp_path / "dog.txt").read_text(encoding='utf-8') == "0 0.3125 0.3125 0.3125 0.416667\n"
+    assert "dog.txt" in window.statusBar().currentMessage()
+
+def test_load_gt_error_warns(window, tmp_path, warnings):
+    (tmp_path / "dog.txt").write_text("0 abc 0.3125 0.3125 0.416667\n", encoding='utf-8')
+    window.open_image(tmp_path / "dog.png")
+    assert warnings == ["Could not load GT"]
+    assert window.view.get_boxes() == []
+
+def test_save_gt_class_out_of_range_warns(window, tmp_path, warnings):
+    window.open_image(tmp_path / "dog.png")
+    window.view.set_boxes([{**BOX, 'cls': 2}])
+    window.save_gt()
+    assert warnings == ["Could not save GT"]
+    assert not (tmp_path / "dog.txt").exists()
