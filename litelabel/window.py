@@ -1,13 +1,15 @@
 from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QImageReader, QMouseEvent, QPen, QPixmap, QResizeEvent, QWheelEvent, QKeyEvent
+from PySide6.QtGui import QColor, QImageReader, QMouseEvent, QPen, QPixmap, QResizeEvent, QWheelEvent, QKeyEvent, \
+    QAction, QKeySequence
 from PySide6.QtWidgets import (
     QComboBox, QGraphicsItem, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene, QGraphicsView,
-    QHBoxLayout, QLabel, QMainWindow, QVBoxLayout, QWidget,
+    QHBoxLayout, QLabel, QMainWindow, QVBoxLayout, QWidget, QMessageBox,
 )
 
 from litelabel.config import load_formats
+from litelabel.gt import load_boxes, resolve_gt_path, save_boxes
 
 ZOOM_STEP = 1.25
 MIN_ZOOM = 0.05
@@ -79,7 +81,6 @@ class ImageView(QGraphicsView):
         if image.isNull():
             raise ValueError(f"Could not open image {path}: {reader.errorString()}")
         self.clear_boxes()
-        self.pixmap_item.setPixmap(QPixmap.fromImage(image))
         self.pixmap_item.setPixmap(QPixmap.fromImage(image))
         self.setSceneRect(self.pixmap_item.boundingRect())
         self.fit_image()
@@ -177,8 +178,6 @@ class ImageView(QGraphicsView):
         else:
             self.mode = 'draw'
             self.active = self.add_box(QRectF(self.drag_start, self.drag_start), self.current_cls)
-            self.active.setPen(build_pen(self.config))
-            self.scene().addItem(self.active)
         self.start_rect = self.active.rect()
 
     def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
@@ -256,6 +255,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("LiteLabel")
         self.config = config
         self.formats = load_formats(config)
+        self.image_path = None
         self.view = ImageView(config)
         self.format_box = QComboBox()
         self.class_box = QComboBox()
@@ -278,6 +278,10 @@ class MainWindow(QMainWindow):
         self.format_box.currentIndexChanged.connect(self.update_classes)
         self.class_box.currentIndexChanged.connect(self.select_class)
         self.update_classes()
+        save_action = QAction("Save", self)
+        save_action.setShortcut(QKeySequence.StandardKey.Save)
+        save_action.triggered.connect(self.save_gt)
+        self.addAction(save_action)
 
     def current_format(self) -> dict:
         return self.formats[self.format_box.currentData()]
@@ -297,3 +301,32 @@ class MainWindow(QMainWindow):
         # the list briefly has no selection (-1) while it is being refilled
         if index >= 0:
             self.view.current_cls = index
+
+    def open_image(self, path: Path) -> None:
+        self.view.set_image(path)
+        self.image_path = path
+        if self.config.get('auto_gt_load', 1):
+            self.load_gt()
+
+    def load_gt(self) -> None:
+        width, height = self.view.image_size()
+        try:
+            boxes = load_boxes(self.image_path, width, height, self.current_format(), self.current_classes(),
+                               self.config.get('gt_path_root'))
+        except ValueError as error:
+            QMessageBox.warning(self, "Could not load GT", str(error))
+            return
+        self.view.set_boxes(boxes)
+
+    def save_gt(self) -> None:
+        if self.image_path is None:
+            return
+        width, height = self.view.image_size()
+        fmt = self.current_format()
+        gt_path_root = self.config.get('gt_path_root')
+        try:
+            save_boxes(self.image_path, self.view.get_boxes(), width, height, fmt, self.current_classes(), gt_path_root)
+        except (ValueError, OSError) as error:
+            QMessageBox.warning(self, "Could not save GT", str(error))
+            return
+        self.statusBar().showMessage(f"Saved {resolve_gt_path(self.image_path, fmt, gt_path_root)}", 3000)
