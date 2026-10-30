@@ -153,6 +153,9 @@ def save_boxes(
         classes: list[str],
         gt_path_root: str|None=None
 ) -> None:
+    for box in boxes:
+        if not 0 <= box['cls'] < len(classes):
+            raise ValueError(f"Class id {box['cls']} out of range for {len(classes)} classes")
     gt_path = resolve_gt_path(image_path, fmt, gt_path_root)
     if fmt['gt_file_ext'] == 'xml':
         write_voc_file(gt_path, build_voc(image_path, boxes, width, height, classes))
