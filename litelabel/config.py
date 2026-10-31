@@ -4,6 +4,21 @@ import yaml
 
 from litelabel.utility import resolve_app_directory
 
+# general settings used when config.yml leaves them out
+DEFAULTS = {
+    'media_path_root': "",
+    'gt_path_root': "",
+    'auto_gt_load': 1,
+    'gt_file_ext': "txt",
+    'gt_merged': 0,
+    'delimiter': ",",
+    'min_object_size': 10,
+    'box_line_width': 2,
+    'box_color': [0, 255, 0],
+    'hotkey_left': "a",
+    'hotkey_right': "d",
+}
+# top-level settings a format falls back to when it doesn't set its own
 INHERITED_KEYS = ('gt_file_ext', 'gt_merged', 'delimiter', 'classes_set', 'gt_path_root')
 SPECIFIERS = {
     'iname', 'classid', 'cname', 'difficult',
@@ -29,7 +44,7 @@ def load_config(path: Path | None = None) -> dict:
     # an empty file loads as None and a lone value as a scalar; neither holds settings
     if not isinstance(config, dict):
         raise ValueError(f"Config file has no settings: {path}")
-    return config
+    return {**DEFAULTS, **config}
 
 
 def list_formats(config: dict) -> list[str]:
@@ -42,6 +57,7 @@ def resolve_format(config: dict, key: str) -> dict:
     if not isinstance(config[key], dict):
         raise ValueError(f"Format config has invalid settings: {key}")
     defaults = {name: config[name] for name in INHERITED_KEYS if name in config}
+    # later values win: built-in fallback, then top-level settings, then the format's own
     fmt: dict = {'fixed_filetype': 0, **defaults, **config[key]}
     if 'name' not in fmt:
         number = key.removeprefix('format')
@@ -67,9 +83,9 @@ def validate_format(config: dict, key: str, fmt: dict) -> None:
         raise ValueError(f"{key}: gt_file_ext must be one of {', '.join(GT_FILE_EXTS)}")
     if fmt.get('gt_merged') not in (0, 1):
         raise ValueError(f"{key}: gt_merged must be 0 or 1")
-    # rows in a merged file can only be matched back to their image by name
     if fmt['gt_merged'] == 1 and fmt['gt_file_ext'] == 'xml':
         raise ValueError(f"{key}: xml files are one per image and can't be merged")
+    # rows in a merged file can only be matched back to their image by name
     if fmt['gt_merged'] == 1 and 'iname' not in data_fmt:
         raise ValueError(f"{key}: merged GT files need iname in data_fmt")
     delimiter = fmt.get('delimiter')
