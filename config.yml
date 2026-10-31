@@ -25,6 +25,7 @@ format0:
   gt_file_ext: "txt"
   gt_merged: 0
   delimiter: " "
+  gt_path_root: "../labels"
 
 format1:
   name: "pascal voc"
@@ -32,6 +33,7 @@ format1:
   data_fmt: [cname, difficult, x1, y1, x2, y2]
   gt_file_ext: "xml"
   gt_merged: 0
+  gt_path_root: "../Annotations"
 
 format2:
   name: "rf-detr (yolo)"
@@ -40,3 +42,4 @@ format2:
   gt_file_ext: "txt"
   gt_merged: 0
   delimiter: " "
+  gt_path_root: "../labels"
