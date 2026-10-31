@@ -8,7 +8,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QComboBox, QGraphicsItem, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene, QGraphicsView,
-    QHBoxLayout, QLabel, QMainWindow, QVBoxLayout, QWidget, QMessageBox, QMenu, QFileDialog,
+    QHBoxLayout, QLabel, QMainWindow, QVBoxLayout, QWidget, QMessageBox, QMenu, QFileDialog, QPushButton,
 )
 from shiboken6.Shiboken import Object
 
@@ -290,6 +290,10 @@ class MainWindow(QMainWindow):
         panel_layout.addWidget(self.format_box)
         panel_layout.addWidget(QLabel("Class"))
         panel_layout.addWidget(self.class_box)
+        open_button = QPushButton("Open Folder")
+        open_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        open_button.clicked.connect(self.choose_folder)
+        panel_layout.addWidget(open_button)
         panel_layout.addStretch()
         central = QWidget()
         layout = QHBoxLayout(central)
