@@ -336,7 +336,7 @@ def window(app, tmp_path):
     window.show()
     app.processEvents()
     yield window
-    window.close()
+    window.hide()
 
 
 @pytest.fixture
@@ -448,3 +448,43 @@ def test_bad_image_does_not_block_navigation(window, folder, warnings):
     window.show_next()
     assert warnings == ["Could not open image"]
     assert window.index == 3
+
+
+def test_navigation_saves_changes(window, folder):
+    window.open_folder(folder)
+    window.view.set_boxes([BOX])
+    window.show_next()
+    assert (folder / "frame1.txt").read_text(encoding='utf-8') == "0 0.3125 0.3125 0.3125 0.416667\n"
+
+
+def test_navigation_without_changes_writes_nothing(window, folder):
+    window.open_folder(folder)
+    window.show_next()
+    window.show_previous()
+    assert not (folder / "frame1.txt").exists()
+
+
+def test_failed_save_stays_on_image(window, folder, warnings):
+    window.open_folder(folder)
+    window.view.set_boxes([{**BOX, 'cls': 2}])
+    window.show_next()
+    assert warnings == ["Could not save GT"]
+    assert window.index == 0
+
+
+def test_close_saves_changes(window, folder):
+    window.open_folder(folder)
+    window.view.set_boxes([BOX])
+    assert window.close()
+    assert (folder / "frame1.txt").exists()
+
+
+@pytest.mark.parametrize('answer, closed', [
+    (QMessageBox.StandardButton.Yes, True),
+    (QMessageBox.StandardButton.No, False),
+])
+def test_close_asks_when_save_fails(window, folder, warnings, monkeypatch, answer, closed):
+    monkeypatch.setattr(QMessageBox, 'question', lambda *args: answer)
+    window.open_folder(folder)
+    window.view.set_boxes([{**BOX, 'cls': 2}])
+    assert window.close() == closed
