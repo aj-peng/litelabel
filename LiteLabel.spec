@@ -1,5 +1,8 @@
 # -*- mode: python ; coding: utf-8 -*-
+import sys
 
+# EXE takes the .ico on Windows only; BUNDLE (macOS) converts the same .ico to .icns with Pillow
+ICON = 'assets/app.ico' if sys.platform == 'win32' else None
 
 a = Analysis(
     ['main.py'],
@@ -25,26 +28,27 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    upx=False,
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=ICON,
 )
 coll = COLLECT(
     exe,
     a.binaries,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     name='LiteLabel',
 )
 app = BUNDLE(
     coll,
     name='LiteLabel.app',
-    icon=None,
+    icon='assets/app.ico',
     bundle_identifier=None,
 )
