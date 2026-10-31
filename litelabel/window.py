@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, Qt
@@ -10,6 +11,7 @@ from PySide6.QtWidgets import (
 
 from litelabel.config import load_formats
 from litelabel.gt import load_boxes, resolve_gt_path, save_boxes
+from litelabel.utility import list_images
 
 ZOOM_STEP = 1.25
 MIN_ZOOM = 0.05
@@ -27,6 +29,7 @@ EDGE_CURSORS = {
     frozenset({'left', 'bottom'}): Qt.CursorShape.SizeBDiagCursor,
 }
 
+
 def find_edges(rect: QRectF, point: QPointF, margin: float) -> set[str]:
     if not rect.adjusted(-margin, -margin, margin, margin).contains(point):
         return set()
@@ -41,6 +44,7 @@ def find_edges(rect: QRectF, point: QPointF, margin: float) -> set[str]:
         edges.add('bottom')
     return edges
 
+
 def build_pen(config: dict) -> QPen:
     # box_color is stored blue, green, red
     blue, green, red = config['box_color']
@@ -49,12 +53,14 @@ def build_pen(config: dict) -> QPen:
     pen.setCosmetic(True)
     return pen
 
+
 class BoxItem(QGraphicsRectItem):
-    def __init__(self, rect: QRectF, cls: int, difficult: int=0):
+    def __init__(self, rect: QRectF, cls: int, difficult: int = 0):
         super().__init__(rect)
         self.cls = cls
         self.difficult = difficult
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable)
+
 
 class ImageView(QGraphicsView):
     def __init__(self, config: dict):
@@ -93,7 +99,7 @@ class ImageView(QGraphicsView):
         pixmap = self.pixmap_item.pixmap()
         return pixmap.width(), pixmap.height()
 
-    def add_box(self, rect: QRectF, cls: int, difficult: int=0) -> BoxItem:
+    def add_box(self, rect: QRectF, cls: int, difficult: int = 0) -> BoxItem:
         box = BoxItem(rect, cls, difficult)
         box.setPen(build_pen(self.config))
         self.scene().addItem(box)
@@ -114,7 +120,8 @@ class ImageView(QGraphicsView):
             rect = item.rect()
             boxes.append({
                 'cls': item.cls,
-                'x1': round(rect.left()), 'y1': round(rect.top()), 'x2': round(rect.right()), 'y2': round(rect.bottom()),
+                'x1': round(rect.left()), 'y1': round(rect.top()), 'x2': round(rect.right()),
+                'y2': round(rect.bottom()),
                 'difficult': item.difficult,
             })
         return boxes
@@ -132,13 +139,13 @@ class ImageView(QGraphicsView):
         y = min(max(round(point.y()), 0), bounds.height())
         return QPointF(x, y)
 
-    def box_at(self, point: QPointF) -> BoxItem|None:
+    def box_at(self, point: QPointF) -> BoxItem | None:
         for item in self.scene().items(point):
             if isinstance(item, BoxItem):
                 return item
         return None
 
-    def grab_at(self, point: QPointF) -> tuple[BoxItem|None, set[str]]:
+    def grab_at(self, point: QPointF) -> tuple[BoxItem | None, set[str]]:
         margin = GRAB_MARGIN / self.transform().m11()
         box = self.box_at(point)
         if box:
@@ -249,6 +256,7 @@ class ImageView(QGraphicsView):
         if self.fitted:
             self.fit_image()
 
+
 class MainWindow(QMainWindow):
     def __init__(self, config: dict):
         super().__init__()
@@ -256,6 +264,8 @@ class MainWindow(QMainWindow):
         self.config = config
         self.formats = load_formats(config)
         self.image_path = None
+        self.images = []
+        self.index = 0
         self.view = ImageView(config)
         self.format_box = QComboBox()
         self.class_box = QComboBox()
@@ -278,10 +288,15 @@ class MainWindow(QMainWindow):
         self.format_box.currentIndexChanged.connect(self.update_classes)
         self.class_box.currentIndexChanged.connect(self.select_class)
         self.update_classes()
-        save_action = QAction("Save", self)
-        save_action.setShortcut(QKeySequence.StandardKey.Save)
-        save_action.triggered.connect(self.save_gt)
-        self.addAction(save_action)
+        self.add_shortcut("Save", QKeySequence(QKeySequence.StandardKey.Save), self.save_gt)
+        self.add_shortcut("Previous", QKeySequence(config.get('hotkey_left', 'a')), self.show_previous)
+        self.add_shortcut("Next", QKeySequence(config.get('hotkey_right', 'd')), self.show_next)
+
+    def add_shortcut(self, name: str, key: QKeySequence, slot: Callable[[], None]) -> None:
+        action = QAction(name, self)
+        action.setShortcut(key)
+        action.triggered.connect(slot)
+        self.addAction(action)
 
     def current_format(self) -> dict:
         return self.formats[self.format_box.currentData()]
@@ -330,3 +345,30 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Could not save GT", str(error))
             return
         self.statusBar().showMessage(f"Saved {resolve_gt_path(self.image_path, fmt, gt_path_root)}", 3000)
+
+    def open_folder(self, folder: Path, start: Path | None = None) -> None:
+        images = list_images(folder)
+        if not images:
+            QMessageBox.warning(self, "No images", f"No images found in {folder}")
+            return
+        self.images = images
+        names = [path.name for path in images]
+        self.go_to(names.index(start.name) if start and start.name in names else 0)
+
+    def go_to(self, index: int) -> None:
+        if not 0 <= index < len(self.images):
+            return
+        # move on even if the image can't be opened, so one bad file doesn't block navigation
+        self.index = index
+        path = self.images[index]
+        self.setWindowTitle(f"LiteLabel - {path.name} ({index + 1}/{len(self.images)})")
+        try:
+            self.open_image(path)
+        except ValueError as error:
+            QMessageBox.warning(self, "Could not open image", str(error))
+
+    def show_previous(self) -> None:
+        self.go_to(self.index - 1)
+
+    def show_next(self) -> None:
+        self.go_to(self.index + 1)
