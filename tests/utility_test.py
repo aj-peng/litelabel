@@ -17,6 +17,12 @@ def test_app_directory_when_packaged(monkeypatch):
     assert resolve_app_directory() == Path("/fake/dist/LiteLabel").resolve()
 
 
+def test_app_directory_in_mac_app_bundle(monkeypatch):
+    monkeypatch.setattr(sys, 'frozen', True, raising=False)
+    monkeypatch.setattr(sys, 'executable', "/fake/dist/LiteLabel.app/Contents/MacOS/LiteLabel")
+    assert resolve_app_directory() == Path("/fake/dist").resolve()
+
+
 # write_atomic
 
 def test_write_atomic_creates_folders(tmp_path):
