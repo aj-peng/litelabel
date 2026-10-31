@@ -2,8 +2,10 @@ from collections.abc import Callable
 from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QImageReader, QMouseEvent, QPen, QPixmap, QResizeEvent, QWheelEvent, QKeyEvent, \
-    QAction, QKeySequence
+from PySide6.QtGui import (
+    QColor, QImageReader, QMouseEvent, QPen, QPixmap, QResizeEvent, QWheelEvent, QKeyEvent,
+    QAction, QKeySequence, QCloseEvent,
+)
 from PySide6.QtWidgets import (
     QComboBox, QGraphicsItem, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene, QGraphicsView,
     QHBoxLayout, QLabel, QMainWindow, QVBoxLayout, QWidget, QMessageBox,
@@ -266,6 +268,7 @@ class MainWindow(QMainWindow):
         self.image_path = None
         self.images = []
         self.index = 0
+        self.saved_boxes = []
         self.view = ImageView(config)
         self.format_box = QComboBox()
         self.class_box = QComboBox()
@@ -322,6 +325,10 @@ class MainWindow(QMainWindow):
         self.image_path = path
         if self.config.get('auto_gt_load', 1):
             self.load_gt()
+        self.saved_boxes = self.view.get_boxes()
+
+    def is_modified(self) -> bool:
+        return self.image_path is not None and self.view.get_boxes() != self.saved_boxes
 
     def load_gt(self) -> None:
         width, height = self.view.image_size()
@@ -333,18 +340,21 @@ class MainWindow(QMainWindow):
             return
         self.view.set_boxes(boxes)
 
-    def save_gt(self) -> None:
+    def save_gt(self) -> bool:
         if self.image_path is None:
-            return
+            return True
+        boxes = self.view.get_boxes()
         width, height = self.view.image_size()
         fmt = self.current_format()
         gt_path_root = self.config.get('gt_path_root')
         try:
-            save_boxes(self.image_path, self.view.get_boxes(), width, height, fmt, self.current_classes(), gt_path_root)
+            save_boxes(self.image_path, boxes, width, height, fmt, self.current_classes(), gt_path_root)
         except (ValueError, OSError) as error:
             QMessageBox.warning(self, "Could not save GT", str(error))
-            return
+            return False
+        self.saved_boxes = boxes
         self.statusBar().showMessage(f"Saved {resolve_gt_path(self.image_path, fmt, gt_path_root)}", 3000)
+        return True
 
     def open_folder(self, folder: Path, start: Path | None = None) -> None:
         images = list_images(folder)
@@ -358,7 +368,10 @@ class MainWindow(QMainWindow):
     def go_to(self, index: int) -> None:
         if not 0 <= index < len(self.images):
             return
-        # move on even if the image can't be opened, so one bad file doesn't block navigation
+        # stay on this image if its changes can't be saved
+        if self.is_modified() and not self.save_gt():
+            return
+        # move on even if the image can't be opened
         self.index = index
         path = self.images[index]
         self.setWindowTitle(f"LiteLabel - {path.name} ({index + 1}/{len(self.images)})")
@@ -372,3 +385,12 @@ class MainWindow(QMainWindow):
 
     def show_next(self) -> None:
         self.go_to(self.index + 1)
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self.is_modified() and not self.save_gt():
+            answer = QMessageBox.question(self, "Unsaved changes",
+                                          "The boxes could not be saved. Close anyway and lose them?")
+            if answer != QMessageBox.StandardButton.Yes:
+                event.ignore()
+                return
+        event.accept()
