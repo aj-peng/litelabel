@@ -4,16 +4,30 @@ import os
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 import pytest
-from PySide6.QtCore import QPoint, QPointF, Qt, QRectF
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt
 from PySide6.QtGui import QImage, QWheelEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QMessageBox, QFileDialog, QPushButton
+from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox, QPushButton
 
 from litelabel.gt import load_boxes, save_boxes
-from litelabel.window import BoxItem, ImageView, build_pen, find_edges, MainWindow
+from litelabel.window import BoxItem, ImageView, MainWindow, build_pen, find_edges
 
 CONFIG = {'box_color': [0, 255, 0], 'box_line_width': 2, 'min_object_size': 10}
+FULL_CONFIG = {
+    **CONFIG,
+    'gt_file_ext': "txt", 'gt_merged': 0, 'delimiter': ",", 'classes_set': "default_classes",
+    'default_classes': ["target"],
+    'animal_classes': ["cat", "dog", "bird"],
+    'format0': {'name': "darknet yolo", 'data_fmt': ['classid', 'ncx', 'ncy', 'nw', 'nh'], 'delimiter': " "},
+    'format1': {'name': "pascal voc", 'data_fmt': ['cname', 'difficult', 'x1', 'y1', 'x2', 'y2'], 'gt_file_ext': "xml"},
+    'format2': {'name': "animals", 'data_fmt': ['cname', 'x1', 'y1', 'x2', 'y2'], 'classes_set': "animal_classes"},
+}
+BOX = {'cls': 0, 'x1': 100, 'y1': 50, 'x2': 300, 'y2': 250, 'difficult': 0}
+YOLO = {'data_fmt': ['classid', 'ncx', 'ncy', 'nw', 'nh'], 'gt_file_ext': "txt", 'gt_merged': 0, 'delimiter': " "}
+YOLO_ROW = "0 0.3125 0.3125 0.3125 0.416667\n"
 
+
+# fixtures
 
 @pytest.fixture(scope='session')
 def app():
@@ -35,6 +49,39 @@ def view(app, tmp_path):
     view.close()
 
 
+@pytest.fixture
+def window(app, tmp_path):
+    QImage(640, 480, QImage.Format.Format_RGB32).save(str(tmp_path / "dog.png"))
+    window = MainWindow(FULL_CONFIG)
+    window.resize(1200, 800)
+    window.show()
+    app.processEvents()
+    yield window
+    # hide instead of close: close would try to save leftover test boxes and could open a dialog
+    window.hide()
+
+
+@pytest.fixture
+def folder(tmp_path):
+    # a subfolder, so the window fixture's dog.png isn't part of it
+    frames = tmp_path / "frames"
+    frames.mkdir()
+    for name in ["frame1.png", "frame2.png", "frame10.png"]:
+        QImage(640, 480, QImage.Format.Format_RGB32).save(str(frames / name))
+    (frames / "frame2.txt").write_text(YOLO_ROW, encoding='utf-8')
+    return frames
+
+
+@pytest.fixture
+def warnings(monkeypatch):
+    # record message boxes instead of opening them, which would block the test
+    shown = []
+    monkeypatch.setattr(QMessageBox, 'warning', lambda parent, title, text: shown.append(title))
+    return shown
+
+
+# helpers
+
 def drag(view: ImageView, start: tuple[int, int], end: tuple[int, int]) -> None:
     viewport = view.viewport()
     start_point, end_point = view.mapFromScene(*start), view.mapFromScene(*end)
@@ -43,15 +90,36 @@ def drag(view: ImageView, start: tuple[int, int], end: tuple[int, int]) -> None:
     QTest.mouseRelease(viewport, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, end_point)
 
 
-def list_boxes(view: ImageView) -> list[tuple]:
-    return [item.rect().getCoords() for item in view.scene().items() if isinstance(item, BoxItem)]
+def click(view: ImageView, point: tuple[int, int]) -> None:
+    QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+                     view.mapFromScene(*point))
+
+
+def hover(view: ImageView, point: tuple[float, float]) -> Qt.CursorShape:
+    QTest.mouseMove(view.viewport(), view.mapFromScene(*point))
+    return view.viewport().cursor().shape()
 
 
 def wheel(view: ImageView, delta: int) -> None:
+    # QTest has no wheel helper, so build the event and deliver it directly
     point = QPointF(100, 100)
     view.wheelEvent(QWheelEvent(point, point, QPoint(), QPoint(0, delta), Qt.MouseButton.NoButton,
                                 Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False))
 
+
+def list_boxes(view: ImageView) -> list[tuple]:
+    return [item.rect().getCoords() for item in view.scene().items() if isinstance(item, BoxItem)]
+
+
+def selected_boxes(view: ImageView) -> list[tuple]:
+    return [item.rect().getCoords() for item in view.scene().selectedItems()]
+
+
+def list_items(box) -> list[str]:
+    return [box.itemText(index) for index in range(box.count())]
+
+
+# image and zoom
 
 def test_set_image(view):
     assert view.sceneRect().getCoords() == (0, 0, 640, 480)
@@ -61,6 +129,10 @@ def test_set_image(view):
 def test_set_image_missing(view, tmp_path):
     with pytest.raises(ValueError, match="Could not open image"):
         view.set_image(tmp_path / "missing.png")
+
+
+def test_image_size(view):
+    assert view.image_size() == (640, 480)
 
 
 def test_wheel_zoom(view):
@@ -75,6 +147,25 @@ def test_wheel_zoom_limit(view):
         wheel(view, 120)
     assert view.transform().m11() == pytest.approx(40)
 
+
+def test_wheel_zoom_tiny_image_never_reverses(app, tmp_path):
+    # a 16x16 image fits above MAX_ZOOM, so zooming in must not jump back down to it
+    path = tmp_path / "tiny.png"
+    image = QImage(16, 16, QImage.Format.Format_RGB32)
+    image.fill(Qt.GlobalColor.darkCyan)
+    image.save(str(path))
+    view = ImageView(CONFIG)
+    view.resize(1000, 700)
+    view.set_image(path)
+    view.show()
+    app.processEvents()
+    fit = view.transform().m11()
+    wheel(view, 120)
+    assert view.transform().m11() >= fit
+    view.close()
+
+
+# drawing
 
 def test_draw_box(view):
     drag(view, (100, 50), (300, 250))
@@ -102,14 +193,7 @@ def test_build_pen_reads_bgr():
     assert pen.isCosmetic()
 
 
-def selected_boxes(view: ImageView) -> list[tuple]:
-    return [item.rect().getCoords() for item in view.scene().selectedItems()]
-
-
-def click(view: ImageView, point: tuple[int, int]) -> None:
-    QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
-                     view.mapFromScene(*point))
-
+# selecting, moving, resizing, deleting
 
 def test_new_box_is_selected(view):
     drag(view, (100, 50), (300, 250))
@@ -182,27 +266,6 @@ def test_middle_still_moves(view):
     assert list_boxes(view) == [(110, 50, 310, 250)]
 
 
-def test_wheel_zoom_tiny_image_never_reverses(app, tmp_path):
-    path = tmp_path / "tiny.png"
-    image = QImage(16, 16, QImage.Format.Format_RGB32)
-    image.fill(Qt.GlobalColor.darkCyan)
-    image.save(str(path))
-    view = ImageView(CONFIG)
-    view.resize(1000, 700)
-    view.set_image(path)
-    view.show()
-    app.processEvents()
-    fit = view.transform().m11()
-    wheel(view, 120)
-    assert view.transform().m11() >= fit
-    view.close()
-
-
-def hover(view: ImageView, point: tuple[float, float]) -> Qt.CursorShape:
-    QTest.mouseMove(view.viewport(), view.mapFromScene(*point))
-    return view.viewport().cursor().shape()
-
-
 @pytest.mark.parametrize('point, expected', [
     ((200, 150), Qt.CursorShape.SizeAllCursor),
     ((300, 150), Qt.CursorShape.SizeHorCursor),
@@ -217,6 +280,7 @@ def test_hover_cursor(view, point, expected):
 
 
 def test_hover_cursor_outside_image(view):
+    # a wider window leaves gray space beside the image
     view.resize(1400, 700)
     assert hover(view, (-50, 200)) == Qt.CursorShape.ArrowCursor
 
@@ -237,60 +301,7 @@ def test_delete_with_nothing_selected(view):
     assert list_boxes(view) == [(100, 50, 300, 250)]
 
 
-FULL_CONFIG = {
-    **CONFIG,
-    'gt_file_ext': "txt", 'gt_merged': 0, 'delimiter': ",", 'classes_set': "default_classes",
-    'default_classes': ["target"],
-    'animal_classes': ["cat", "dog", "bird"],
-    'format0': {'name': "darknet yolo", 'data_fmt': ['classid', 'ncx', 'ncy', 'nw', 'nh'], 'delimiter': " "},
-    'format1': {'name': "pascal voc", 'data_fmt': ['cname', 'difficult', 'x1', 'y1', 'x2', 'y2'], 'gt_file_ext': "xml"},
-    'format2': {'name': "animals", 'data_fmt': ['cname', 'x1', 'y1', 'x2', 'y2'], 'classes_set': "animal_classes"},
-}
-
-
-def list_items(box) -> list[str]:
-    return [box.itemText(index) for index in range(box.count())]
-
-
-def test_format_dropdown(app):
-    window = MainWindow(FULL_CONFIG)
-    names = [window.format_box.itemText(index) for index in range(window.format_box.count())]
-    assert names == ["darknet yolo", "pascal voc", "animals"]
-    assert window.current_format()['gt_file_ext'] == "txt"
-    window.format_box.setCurrentIndex(1)
-    assert window.current_format()['gt_file_ext'] == "xml"
-
-
-def test_class_dropdown_follows_format(app):
-    window = MainWindow(FULL_CONFIG)
-    assert list_items(window.class_box) == ["target"]
-    window.format_box.setCurrentIndex(2)
-    assert list_items(window.class_box) == ["cat", "dog", "bird"]
-
-
-def test_class_dropdown_sets_new_box_class(app):
-    window = MainWindow(FULL_CONFIG)
-    window.format_box.setCurrentIndex(2)
-    window.class_box.setCurrentIndex(1)
-    assert window.view.current_cls == 1
-
-
-def test_class_choice_kept_or_reset(app):
-    window = MainWindow(FULL_CONFIG)
-    window.format_box.setCurrentIndex(2)
-    window.class_box.setCurrentIndex(2)
-    window.format_box.setCurrentIndex(0)
-    assert window.class_box.currentIndex() == 0
-    assert window.view.current_cls == 0
-
-
-BOX = {'cls': 0, 'x1': 100, 'y1': 50, 'x2': 300, 'y2': 250, 'difficult': 0}
-YOLO = {'data_fmt': ['classid', 'ncx', 'ncy', 'nw', 'nh'], 'gt_file_ext': "txt", 'gt_merged': 0, 'delimiter': " "}
-
-
-def test_image_size(view):
-    assert view.image_size() == (640, 480)
-
+# boxes to and from the view
 
 def test_get_boxes_after_drawing(view):
     drag(view, (100, 50), (300, 250))
@@ -327,28 +338,49 @@ def test_save_and_reload_drawn_box(view, tmp_path):
     assert view.get_boxes() == [BOX]
 
 
-@pytest.fixture
-def window(app, tmp_path):
-    path = tmp_path / "dog.png"
-    QImage(640, 480, QImage.Format.Format_RGB32).save(str(path))
+# side panel
+
+def test_format_dropdown(app):
     window = MainWindow(FULL_CONFIG)
-    window.resize(1200, 800)
-    window.show()
-    app.processEvents()
-    yield window
-    window.hide()
+    assert list_items(window.format_box) == ["darknet yolo", "pascal voc", "animals"]
+    assert window.current_format()['gt_file_ext'] == "txt"
+    window.format_box.setCurrentIndex(1)
+    assert window.current_format()['gt_file_ext'] == "xml"
 
 
-@pytest.fixture
-def warnings(monkeypatch):
-    # record message boxes instead of opening them, which would block the test
-    shown = []
-    monkeypatch.setattr(QMessageBox, 'warning', lambda parent, title, text: shown.append(title))
-    return shown
+def test_class_dropdown_follows_format(app):
+    window = MainWindow(FULL_CONFIG)
+    assert list_items(window.class_box) == ["target"]
+    window.format_box.setCurrentIndex(2)
+    assert list_items(window.class_box) == ["cat", "dog", "bird"]
 
+
+def test_class_dropdown_sets_new_box_class(app):
+    window = MainWindow(FULL_CONFIG)
+    window.format_box.setCurrentIndex(2)
+    window.class_box.setCurrentIndex(1)
+    assert window.view.current_cls == 1
+
+
+def test_class_choice_kept_or_reset(app):
+    # "bird" (class 2) doesn't exist in the one-class format, so both fall back to class 0
+    window = MainWindow(FULL_CONFIG)
+    window.format_box.setCurrentIndex(2)
+    window.class_box.setCurrentIndex(2)
+    window.format_box.setCurrentIndex(0)
+    assert window.class_box.currentIndex() == 0
+    assert window.view.current_cls == 0
+
+
+def test_menus(window):
+    menus = {action.text(): [item.text() for item in action.menu().actions()] for action in window.menuBar().actions()}
+    assert menus == {'File': ["Open Folder...", "Save"], 'Image': ["Previous", "Next"]}
+
+
+# loading and saving GT
 
 def test_open_image_loads_gt(window, tmp_path):
-    (tmp_path / "dog.txt").write_text("0 0.3125 0.3125 0.3125 0.416667\n", encoding='utf-8')
+    (tmp_path / "dog.txt").write_text(YOLO_ROW, encoding='utf-8')
     window.open_image(tmp_path / "dog.png")
     assert window.view.get_boxes() == [BOX]
 
@@ -356,7 +388,7 @@ def test_open_image_loads_gt(window, tmp_path):
 def test_open_image_without_auto_load(app, tmp_path):
     path = tmp_path / "dog.png"
     QImage(640, 480, QImage.Format.Format_RGB32).save(str(path))
-    (tmp_path / "dog.txt").write_text("0 0.3125 0.3125 0.3125 0.416667\n", encoding='utf-8')
+    (tmp_path / "dog.txt").write_text(YOLO_ROW, encoding='utf-8')
     window = MainWindow({**FULL_CONFIG, 'auto_gt_load': 0})
     window.open_image(path)
     assert window.view.get_boxes() == []
@@ -366,7 +398,7 @@ def test_save_gt(window, tmp_path):
     window.open_image(tmp_path / "dog.png")
     window.view.set_boxes([BOX])
     window.save_gt()
-    assert (tmp_path / "dog.txt").read_text(encoding='utf-8') == "0 0.3125 0.3125 0.3125 0.416667\n"
+    assert (tmp_path / "dog.txt").read_text(encoding='utf-8') == YOLO_ROW
     assert "dog.txt" in window.statusBar().currentMessage()
 
 
@@ -385,16 +417,21 @@ def test_save_gt_class_out_of_range_warns(window, tmp_path, warnings):
     assert not (tmp_path / "dog.txt").exists()
 
 
-@pytest.fixture
-def folder(tmp_path):
-    # a subfolder, so the window fixture's dog.png isn't part of it
-    frames = tmp_path / "frames"
-    frames.mkdir()
-    for name in ["frame1.png", "frame2.png", "frame10.png"]:
-        QImage(640, 480, QImage.Format.Format_RGB32).save(str(frames / name))
-    (frames / "frame2.txt").write_text("0 0.3125 0.3125 0.3125 0.416667\n", encoding='utf-8')
-    return frames
+def test_format_gt_path_root(app, tmp_path):
+    images = tmp_path / "dataset" / "images"
+    images.mkdir(parents=True)
+    QImage(640, 480, QImage.Format.Format_RGB32).save(str(images / "dog.png"))
+    yolo = {**FULL_CONFIG['format0'], 'gt_path_root': "../labels"}
+    window = MainWindow({**FULL_CONFIG, 'format0': yolo})
+    window.open_folder(images)
+    window.view.set_boxes([BOX])
+    window.save_gt()
+    assert (tmp_path / "dataset" / "labels" / "dog.txt").read_text(encoding='utf-8') == YOLO_ROW
+    window.open_image(images / "dog.png")
+    assert window.view.get_boxes() == [BOX]
 
+
+# navigation
 
 def test_open_folder_starts_at_first_image(window, folder):
     window.open_folder(folder)
@@ -405,6 +442,13 @@ def test_open_folder_starts_at_first_image(window, folder):
 def test_open_folder_at_given_image(window, folder):
     window.open_folder(folder, folder / "frame10.png")
     assert window.index == 2
+
+
+def test_open_folder_without_images(window, tmp_path, warnings):
+    empty = tmp_path / "empty"
+    empty.mkdir()
+    window.open_folder(empty)
+    assert warnings == ["No images"]
 
 
 def test_next_and_previous(window, folder):
@@ -434,14 +478,8 @@ def test_hotkeys(window, folder):
     assert window.index == 0
 
 
-def test_open_folder_without_images(window, tmp_path, warnings):
-    empty = tmp_path / "empty"
-    empty.mkdir()
-    window.open_folder(empty)
-    assert warnings == ["No images"]
-
-
 def test_bad_image_does_not_block_navigation(window, folder, warnings):
+    # sorts between frame2 and frame10
     (folder / "frame3.png").write_bytes(b"not an image")
     window.open_folder(folder)
     window.go_to(2)
@@ -450,11 +488,39 @@ def test_bad_image_does_not_block_navigation(window, folder, warnings):
     assert window.index == 3
 
 
+def test_choose_folder(window, folder, monkeypatch):
+    monkeypatch.setattr(QFileDialog, 'getExistingDirectory', lambda *args: str(folder))
+    window.choose_folder()
+    assert window.image_path == folder / "frame1.png"
+
+
+def test_choose_folder_cancelled(window, monkeypatch):
+    monkeypatch.setattr(QFileDialog, 'getExistingDirectory', lambda *args: "")
+    window.choose_folder()
+    assert window.image_path is None
+
+
+def test_choose_folder_starts_at_media_path_root(app, tmp_path, monkeypatch):
+    starts = []
+    monkeypatch.setattr(QFileDialog, 'getExistingDirectory', lambda parent, title, start: starts.append(start) or "")
+    window = MainWindow({**FULL_CONFIG, 'media_path_root': str(tmp_path)})
+    window.choose_folder()
+    assert starts == [str(tmp_path)]
+
+
+def test_open_folder_button(window, folder, monkeypatch):
+    monkeypatch.setattr(QFileDialog, 'getExistingDirectory', lambda *args: str(folder))
+    QTest.mouseClick(window.findChild(QPushButton), Qt.MouseButton.LeftButton)
+    assert window.image_path == folder / "frame1.png"
+
+
+# unsaved changes
+
 def test_navigation_saves_changes(window, folder):
     window.open_folder(folder)
     window.view.set_boxes([BOX])
     window.show_next()
-    assert (folder / "frame1.txt").read_text(encoding='utf-8') == "0 0.3125 0.3125 0.3125 0.416667\n"
+    assert (folder / "frame1.txt").read_text(encoding='utf-8') == YOLO_ROW
 
 
 def test_navigation_without_changes_writes_nothing(window, folder):
@@ -488,50 +554,3 @@ def test_close_asks_when_save_fails(window, folder, warnings, monkeypatch, answe
     window.open_folder(folder)
     window.view.set_boxes([{**BOX, 'cls': 2}])
     assert window.close() == closed
-
-
-def test_menus(window):
-    menus = {action.text(): [item.text() for item in action.menu().actions()] for action in window.menuBar().actions()}
-    assert menus == {'File': ["Open Folder...", "Save"], 'Image': ["Previous", "Next"]}
-
-
-def test_choose_folder(window, folder, monkeypatch):
-    monkeypatch.setattr(QFileDialog, 'getExistingDirectory', lambda *args: str(folder))
-    window.choose_folder()
-    assert window.image_path == folder / "frame1.png"
-
-
-def test_choose_folder_cancelled(window, monkeypatch):
-    monkeypatch.setattr(QFileDialog, 'getExistingDirectory', lambda *args: "")
-    window.choose_folder()
-    assert window.image_path is None
-
-
-def test_choose_folder_starts_at_media_path_root(app, tmp_path, monkeypatch):
-    starts = []
-    monkeypatch.setattr(QFileDialog, 'getExistingDirectory', lambda parent, title, start: starts.append(start) or "")
-    window = MainWindow({**FULL_CONFIG, 'media_path_root': str(tmp_path)})
-    window.choose_folder()
-    assert starts == [str(tmp_path)]
-
-
-def test_open_folder_button(window, folder, monkeypatch):
-    monkeypatch.setattr(QFileDialog, 'getExistingDirectory', lambda *args: str(folder))
-    button = window.findChild(QPushButton)
-    QTest.mouseClick(button, Qt.MouseButton.LeftButton)
-    assert window.image_path == folder / "frame1.png"
-
-
-def test_format_gt_path_root(app, tmp_path):
-    images = tmp_path / "dataset" / "images"
-    images.mkdir(parents=True)
-    QImage(640, 480, QImage.Format.Format_RGB32).save(str(images / "dog.png"))
-    yolo = {**FULL_CONFIG['format0'], 'gt_path_root': "../labels"}
-    window = MainWindow({**FULL_CONFIG, 'format0': yolo})
-    window.open_folder(images)
-    window.view.set_boxes([BOX])
-    window.save_gt()
-    assert (tmp_path / "dataset" / "labels" / "dog.txt").read_text(
-        encoding='utf-8') == "0 0.3125 0.3125 0.3125 0.416667\n"
-    window.open_image(images / "dog.png")
-    assert window.view.get_boxes() == [BOX]
