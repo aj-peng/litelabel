@@ -86,6 +86,7 @@ def build_box(fields: dict, width: int, height: int, classes: list[str]) -> dict
         raise ValueError(f"Class name not in classes_set: {fields['cname']}")
     if not 0 <= cls < len(classes):
         raise ValueError(f"Class id {cls} out of range for {len(classes)} classes")
+    # pixel values where the format has them, otherwise normalized values scaled to the image
     pixels = {}
     for axis, size in (('x', width), ('y', height)):
         for quantity in AXES[axis]:
@@ -104,19 +105,20 @@ def build_box(fields: dict, width: int, height: int, classes: list[str]) -> dict
 
 
 def resolve_delimiter(fmt: dict) -> str:
-    # apply the delimiter setting to txt; csv is always comma-separated
+    # the delimiter setting applies to txt; csv is always comma-separated
     return fmt['delimiter'] if fmt['gt_file_ext'] == 'txt' else ','
+
+
+def resolve_gt_path(image_path: Path, fmt: dict, gt_path_root: str | None = None) -> Path:
+    # an absolute root replaces the image folder; a relative one starts from it ('../labels' is a sibling)
+    gt_dir = Path(os.path.normpath(image_path.parent / (gt_path_root or '')))
+    name = image_path.parent.name if fmt['gt_merged'] else image_path.stem
+    return gt_dir / f"{name}.{fmt['gt_file_ext']}"
 
 
 def write_gt_file(path: Path, rows: list[list[str]], fmt: dict) -> None:
     delimiter = resolve_delimiter(fmt)
     write_atomic(path, ''.join(delimiter.join(row) + '\n' for row in rows))
-
-
-def resolve_gt_path(image_path: Path, fmt: dict, gt_path_root: str | None = None) -> Path:
-    gt_dir = Path(os.path.normpath(image_path.parent / (gt_path_root or '')))
-    name = image_path.parent.name if fmt['gt_merged'] else image_path.stem
-    return gt_dir / f"{name}.{fmt['gt_file_ext']}"
 
 
 def read_gt_file(path: Path, fmt: dict) -> list[list[str]]:
@@ -129,55 +131,9 @@ def read_gt_file(path: Path, fmt: dict) -> list[list[str]]:
         for line in file:
             line = line.strip()
             if line:
+                # split() with no argument also accepts repeated spaces
                 rows.append(line.split() if delimiter == ' ' else line.split(delimiter))
     return rows
-
-
-def load_boxes(
-        image_path: Path,
-        width: int,
-        height: int,
-        fmt: dict,
-        classes: list[str],
-        gt_path_root: str | None = None
-) -> list[dict]:
-    gt_path = resolve_gt_path(image_path, fmt, gt_path_root)
-    try:
-        if fmt['gt_file_ext'] == 'xml':
-            entries = read_voc_file(gt_path)
-        else:
-            entries = [parse_row(row, fmt['data_fmt']) for row in read_gt_file(gt_path, fmt)]
-        # a merged file holds every image's rows; keep only this image's
-        if fmt['gt_merged']:
-            entries = [fields for fields in entries if fields['iname'] == image_path.name]
-        return [build_box(fields, width, height, classes) for fields in entries]
-    except ValueError as error:
-        raise ValueError(f"{gt_path}: {error}") from error
-
-
-def save_boxes(
-        image_path: Path,
-        boxes: list[dict],
-        width: int,
-        height: int,
-        fmt: dict,
-        classes: list[str],
-        gt_path_root: str | None = None
-) -> None:
-    for box in boxes:
-        if not 0 <= box['cls'] < len(classes):
-            raise ValueError(f"Class id {box['cls']} out of range for {len(classes)} classes")
-    gt_path = resolve_gt_path(image_path, fmt, gt_path_root)
-    if fmt['gt_file_ext'] == 'xml':
-        write_voc_file(gt_path, build_voc(image_path, boxes, width, height, classes))
-        return
-    rows = [format_row(compute_fields(box, width, height, classes, image_path.name), fmt['data_fmt']) for box in boxes]
-    if fmt['gt_merged']:
-        # replace this image's rows, keep every other image's, ordered by image name
-        index = fmt['data_fmt'].index('iname')
-        others = [row for row in read_gt_file(gt_path, fmt) if row[index].strip() != image_path.name]
-        rows = sorted(others + rows, key=lambda row: row[index].strip())
-    write_gt_file(gt_path, rows, fmt)
 
 
 def build_voc(
@@ -226,9 +182,58 @@ def read_voc_file(path: Path) -> list[dict]:
         try:
             objects.append({
                 'cname': name.strip(),
+                # difficult is optional and often left empty
                 'difficult': int(obj.findtext('difficult') or 0),
                 **{key: float(value) for (_, key), value in zip(VOC_CORNERS, corners)},
             })
         except ValueError as error:
             raise ValueError(f"object {number}: {error}") from error
     return objects
+
+
+def load_boxes(
+        image_path: Path,
+        width: int,
+        height: int,
+        fmt: dict,
+        classes: list[str],
+        gt_path_root: str | None = None
+) -> list[dict]:
+    gt_path = resolve_gt_path(image_path, fmt, gt_path_root)
+    try:
+        if fmt['gt_file_ext'] == 'xml':
+            entries = read_voc_file(gt_path)
+        else:
+            entries = [parse_row(row, fmt['data_fmt']) for row in read_gt_file(gt_path, fmt)]
+        # a merged file holds every image's rows; keep only this image's
+        if fmt['gt_merged']:
+            entries = [fields for fields in entries if fields['iname'] == image_path.name]
+        return [build_box(fields, width, height, classes) for fields in entries]
+    except ValueError as error:
+        raise ValueError(f"{gt_path}: {error}") from error
+
+
+def save_boxes(
+        image_path: Path,
+        boxes: list[dict],
+        width: int,
+        height: int,
+        fmt: dict,
+        classes: list[str],
+        gt_path_root: str | None = None
+) -> None:
+    # check before writing, so a bad box never touches the existing file
+    for box in boxes:
+        if not 0 <= box['cls'] < len(classes):
+            raise ValueError(f"Class id {box['cls']} out of range for {len(classes)} classes")
+    gt_path = resolve_gt_path(image_path, fmt, gt_path_root)
+    if fmt['gt_file_ext'] == 'xml':
+        write_voc_file(gt_path, build_voc(image_path, boxes, width, height, classes))
+        return
+    rows = [format_row(compute_fields(box, width, height, classes, image_path.name), fmt['data_fmt']) for box in boxes]
+    if fmt['gt_merged']:
+        # replace this image's rows, keep every other image's, ordered by image name
+        index = fmt['data_fmt'].index('iname')
+        others = [row for row in read_gt_file(gt_path, fmt) if row[index].strip() != image_path.name]
+        rows = sorted(others + rows, key=lambda row: row[index].strip())
+    write_gt_file(gt_path, rows, fmt)
