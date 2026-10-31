@@ -7,7 +7,7 @@ import pytest
 from PySide6.QtCore import QPoint, QPointF, Qt, QRectF
 from PySide6.QtGui import QImage, QWheelEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QMessageBox, QFileDialog
+from PySide6.QtWidgets import QApplication, QMessageBox, QFileDialog, QPushButton
 
 from litelabel.gt import load_boxes, save_boxes
 from litelabel.window import BoxItem, ImageView, build_pen, find_edges, MainWindow
@@ -513,3 +513,25 @@ def test_choose_folder_starts_at_media_path_root(app, tmp_path, monkeypatch):
     window = MainWindow({**FULL_CONFIG, 'media_path_root': str(tmp_path)})
     window.choose_folder()
     assert starts == [str(tmp_path)]
+
+
+def test_open_folder_button(window, folder, monkeypatch):
+    monkeypatch.setattr(QFileDialog, 'getExistingDirectory', lambda *args: str(folder))
+    button = window.findChild(QPushButton)
+    QTest.mouseClick(button, Qt.MouseButton.LeftButton)
+    assert window.image_path == folder / "frame1.png"
+
+
+def test_format_gt_path_root(app, tmp_path):
+    images = tmp_path / "dataset" / "images"
+    images.mkdir(parents=True)
+    QImage(640, 480, QImage.Format.Format_RGB32).save(str(images / "dog.png"))
+    yolo = {**FULL_CONFIG['format0'], 'gt_path_root': "../labels"}
+    window = MainWindow({**FULL_CONFIG, 'format0': yolo})
+    window.open_folder(images)
+    window.view.set_boxes([BOX])
+    window.save_gt()
+    assert (tmp_path / "dataset" / "labels" / "dog.txt").read_text(
+        encoding='utf-8') == "0 0.3125 0.3125 0.3125 0.416667\n"
+    window.open_image(images / "dog.png")
+    assert window.view.get_boxes() == [BOX]
