@@ -7,7 +7,7 @@ import pytest
 from PySide6.QtCore import QPoint, QPointF, Qt, QRectF
 from PySide6.QtGui import QImage, QWheelEvent
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QMessageBox, QFileDialog
 
 from litelabel.gt import load_boxes, save_boxes
 from litelabel.window import BoxItem, ImageView, build_pen, find_edges, MainWindow
@@ -488,3 +488,28 @@ def test_close_asks_when_save_fails(window, folder, warnings, monkeypatch, answe
     window.open_folder(folder)
     window.view.set_boxes([{**BOX, 'cls': 2}])
     assert window.close() == closed
+
+
+def test_menus(window):
+    menus = {action.text(): [item.text() for item in action.menu().actions()] for action in window.menuBar().actions()}
+    assert menus == {'File': ["Open Folder...", "Save"], 'Image': ["Previous", "Next"]}
+
+
+def test_choose_folder(window, folder, monkeypatch):
+    monkeypatch.setattr(QFileDialog, 'getExistingDirectory', lambda *args: str(folder))
+    window.choose_folder()
+    assert window.image_path == folder / "frame1.png"
+
+
+def test_choose_folder_cancelled(window, monkeypatch):
+    monkeypatch.setattr(QFileDialog, 'getExistingDirectory', lambda *args: "")
+    window.choose_folder()
+    assert window.image_path is None
+
+
+def test_choose_folder_starts_at_media_path_root(app, tmp_path, monkeypatch):
+    starts = []
+    monkeypatch.setattr(QFileDialog, 'getExistingDirectory', lambda parent, title, start: starts.append(start) or "")
+    window = MainWindow({**FULL_CONFIG, 'media_path_root': str(tmp_path)})
+    window.choose_folder()
+    assert starts == [str(tmp_path)]
