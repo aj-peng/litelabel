@@ -8,8 +8,9 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QComboBox, QGraphicsItem, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene, QGraphicsView,
-    QHBoxLayout, QLabel, QMainWindow, QVBoxLayout, QWidget, QMessageBox,
+    QHBoxLayout, QLabel, QMainWindow, QVBoxLayout, QWidget, QMessageBox, QMenu, QFileDialog,
 )
+from shiboken6.Shiboken import Object
 
 from litelabel.config import load_formats
 from litelabel.gt import load_boxes, resolve_gt_path, save_boxes
@@ -54,6 +55,13 @@ def build_pen(config: dict) -> QPen:
     # keep the line the same on-screen width at every zoom level
     pen.setCosmetic(True)
     return pen
+
+
+def add_action(menu: QMenu, name: str, key: QKeySequence, slot: Callable[[], object]) -> QAction:
+    action = menu.addAction(name)
+    action.setShortcut(key)
+    action.triggered.connect(slot)
+    return action
 
 
 class BoxItem(QGraphicsRectItem):
@@ -291,15 +299,12 @@ class MainWindow(QMainWindow):
         self.format_box.currentIndexChanged.connect(self.update_classes)
         self.class_box.currentIndexChanged.connect(self.select_class)
         self.update_classes()
-        self.add_shortcut("Save", QKeySequence(QKeySequence.StandardKey.Save), self.save_gt)
-        self.add_shortcut("Previous", QKeySequence(config.get('hotkey_left', 'a')), self.show_previous)
-        self.add_shortcut("Next", QKeySequence(config.get('hotkey_right', 'd')), self.show_next)
-
-    def add_shortcut(self, name: str, key: QKeySequence, slot: Callable[[], None]) -> None:
-        action = QAction(name, self)
-        action.setShortcut(key)
-        action.triggered.connect(slot)
-        self.addAction(action)
+        file_menu = self.menuBar().addMenu("File")
+        add_action(file_menu, "Open Folder...", QKeySequence(QKeySequence.StandardKey.Open), self.choose_folder)
+        add_action(file_menu, "Save", QKeySequence(QKeySequence.StandardKey.Save), self.save_gt)
+        image_menu = self.menuBar().addMenu("Image")
+        add_action(image_menu, "Previous", QKeySequence(config.get('hotkey_left', 'a')), self.show_previous)
+        add_action(image_menu, "Next", QKeySequence(config.get('hotkey_right', 'd')), self.show_next)
 
     def current_format(self) -> dict:
         return self.formats[self.format_box.currentData()]
@@ -364,6 +369,13 @@ class MainWindow(QMainWindow):
         self.images = images
         names = [path.name for path in images]
         self.go_to(names.index(start.name) if start and start.name in names else 0)
+
+    def choose_folder(self) -> None:
+        # start where the current images are, or at media_path_root before any folder is open
+        start = self.images[0].parent if self.images else self.config.get('media_path_root') or ''
+        folder = QFileDialog.getExistingDirectory(self, "Open Folder", str(start))
+        if folder:
+            self.open_folder(Path(folder))
 
     def go_to(self, index: int) -> None:
         if not 0 <= index < len(self.images):
