@@ -3,14 +3,13 @@ from pathlib import Path
 
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import (
-    QColor, QImageReader, QMouseEvent, QPen, QPixmap, QResizeEvent, QWheelEvent, QKeyEvent,
-    QAction, QKeySequence, QCloseEvent,
+    QAction, QCloseEvent, QColor, QImageReader, QKeyEvent, QKeySequence, QMouseEvent, QPen, QPixmap,
+    QResizeEvent, QWheelEvent,
 )
 from PySide6.QtWidgets import (
-    QComboBox, QGraphicsItem, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene, QGraphicsView,
-    QHBoxLayout, QLabel, QMainWindow, QVBoxLayout, QWidget, QMessageBox, QMenu, QFileDialog, QPushButton,
+    QComboBox, QFileDialog, QGraphicsItem, QGraphicsPixmapItem, QGraphicsRectItem, QGraphicsScene,
+    QGraphicsView, QHBoxLayout, QLabel, QMainWindow, QMenu, QMessageBox, QPushButton, QVBoxLayout, QWidget,
 )
-from shiboken6.Shiboken import Object
 
 from litelabel.config import load_formats
 from litelabel.gt import load_boxes, resolve_gt_path, save_boxes
@@ -34,6 +33,7 @@ EDGE_CURSORS = {
 
 
 def find_edges(rect: QRectF, point: QPointF, margin: float) -> set[str]:
+    # the point must be on the box or within the margin around it
     if not rect.adjusted(-margin, -margin, margin, margin).contains(point):
         return set()
     edges = set()
@@ -79,15 +79,19 @@ class ImageView(QGraphicsView):
         self.pixmap_item = QGraphicsPixmapItem()
         self.scene().addItem(self.pixmap_item)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
+        # report mouse moves even with no button held, so the cursor can follow hovering
         self.viewport().setMouseTracking(True)
         self.config = config
         self.fitted = True
         self.current_cls = 0
+        # drag state: mode is None, 'draw', 'move' or 'resize'; active is the box being dragged
         self.mode = None
         self.active = None
         self.edges = set()
         self.drag_start = QPointF()
         self.start_rect = QRectF()
+
+    # image
 
     def set_image(self, path: Path) -> None:
         reader = QImageReader(str(path))
@@ -109,6 +113,8 @@ class ImageView(QGraphicsView):
         pixmap = self.pixmap_item.pixmap()
         return pixmap.width(), pixmap.height()
 
+    # boxes
+
     def add_box(self, rect: QRectF, cls: int, difficult: int = 0) -> BoxItem:
         box = BoxItem(rect, cls, difficult)
         box.setPen(build_pen(self.config))
@@ -116,6 +122,7 @@ class ImageView(QGraphicsView):
         return box
 
     def list_box_items(self) -> list[BoxItem]:
+        # items() lists the topmost first; reversed gives the order the boxes were added
         return [item for item in reversed(self.scene().items()) if isinstance(item, BoxItem)]
 
     def clear_boxes(self) -> None:
@@ -142,7 +149,14 @@ class ImageView(QGraphicsView):
             rect = QRectF(QPointF(box['x1'], box['y1']), QPointF(box['x2'], box['y2']))
             self.add_box(rect, box['cls'], box.get('difficult', 0))
 
+    def delete_selected(self) -> None:
+        for item in self.scene().selectedItems():
+            self.scene().removeItem(item)
+
+    # hit testing
+
     def scene_point(self, event: QMouseEvent) -> QPointF:
+        # whole pixels, kept inside the image
         point = self.mapToScene(event.position().toPoint())
         bounds = self.pixmap_item.boundingRect()
         x = min(max(round(point.x()), 0), bounds.width())
@@ -150,12 +164,14 @@ class ImageView(QGraphicsView):
         return QPointF(x, y)
 
     def box_at(self, point: QPointF) -> BoxItem | None:
+        # items() lists the topmost item first
         for item in self.scene().items(point):
             if isinstance(item, BoxItem):
                 return item
         return None
 
     def grab_at(self, point: QPointF) -> tuple[BoxItem | None, set[str]]:
+        # margin is in screen pixels, so it feels the same at every zoom level
         margin = GRAB_MARGIN / self.transform().m11()
         box = self.box_at(point)
         if box:
@@ -177,9 +193,7 @@ class ImageView(QGraphicsView):
             shape = Qt.CursorShape.ArrowCursor
         self.viewport().setCursor(shape)
 
-    def delete_selected(self) -> None:
-        for item in self.scene().selectedItems():
-            self.scene().removeItem(item)
+    # events
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         if event.button() != Qt.MouseButton.LeftButton or self.pixmap_item.pixmap().isNull():
@@ -256,6 +270,7 @@ class ImageView(QGraphicsView):
         # one mouse-wheel notch is 120; trackpads send smaller steps, so zoom in proportion
         factor = ZOOM_STEP ** (event.angleDelta().y() / 120)
         current = self.transform().m11()
+        # a fit can land outside the limits; widen them so scrolling never jumps the other way
         lowest, highest = min(MIN_ZOOM, current), max(MAX_ZOOM, current)
         target = min(max(current * factor, lowest), highest)
         self.fitted = False
@@ -276,6 +291,7 @@ class MainWindow(QMainWindow):
         self.image_path = None
         self.images = []
         self.index = 0
+        # boxes as of the last load or save, to tell whether anything changed
         self.saved_boxes = []
         self.view = ImageView(config)
         self.format_box = QComboBox()
@@ -283,32 +299,42 @@ class MainWindow(QMainWindow):
         for key, fmt in self.formats.items():
             # each entry shows the format's name and remembers its formatN key
             self.format_box.addItem(fmt['name'], key)
+
+        # side panel
         panel = QWidget()
         panel.setFixedWidth(240)
         panel_layout = QVBoxLayout(panel)
+        open_button = QPushButton("Open Folder...")
+        # keep keyboard focus on the image, so Delete and Space never go to the button
+        open_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        open_button.clicked.connect(self.choose_folder)
+        panel_layout.addWidget(open_button)
         panel_layout.addWidget(QLabel("Format"))
         panel_layout.addWidget(self.format_box)
         panel_layout.addWidget(QLabel("Class"))
         panel_layout.addWidget(self.class_box)
-        open_button = QPushButton("Open Folder")
-        open_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        open_button.clicked.connect(self.choose_folder)
-        panel_layout.addWidget(open_button)
         panel_layout.addStretch()
+
+        # image on the left, panel on the right
         central = QWidget()
         layout = QHBoxLayout(central)
         layout.addWidget(self.view, stretch=1)
         layout.addWidget(panel)
         self.setCentralWidget(central)
+
         self.format_box.currentIndexChanged.connect(self.update_classes)
         self.class_box.currentIndexChanged.connect(self.select_class)
         self.update_classes()
+
+        # menus and shortcuts
         file_menu = self.menuBar().addMenu("File")
         add_action(file_menu, "Open Folder...", QKeySequence(QKeySequence.StandardKey.Open), self.choose_folder)
         add_action(file_menu, "Save", QKeySequence(QKeySequence.StandardKey.Save), self.save_gt)
         image_menu = self.menuBar().addMenu("Image")
         add_action(image_menu, "Previous", QKeySequence(config.get('hotkey_left', 'a')), self.show_previous)
         add_action(image_menu, "Next", QKeySequence(config.get('hotkey_right', 'd')), self.show_next)
+
+    # format and class
 
     def current_format(self) -> dict:
         return self.formats[self.format_box.currentData()]
@@ -328,6 +354,8 @@ class MainWindow(QMainWindow):
         # the list briefly has no selection (-1) while it is being refilled
         if index >= 0:
             self.view.current_cls = index
+
+    # GT files
 
     def open_image(self, path: Path) -> None:
         self.view.set_image(path)
@@ -365,14 +393,7 @@ class MainWindow(QMainWindow):
         self.statusBar().showMessage(f"Saved {resolve_gt_path(self.image_path, fmt, gt_path_root)}", 3000)
         return True
 
-    def open_folder(self, folder: Path, start: Path | None = None) -> None:
-        images = list_images(folder)
-        if not images:
-            QMessageBox.warning(self, "No images", f"No images found in {folder}")
-            return
-        self.images = images
-        names = [path.name for path in images]
-        self.go_to(names.index(start.name) if start and start.name in names else 0)
+    # navigation
 
     def choose_folder(self) -> None:
         # start where the current images are, or at media_path_root before any folder is open
@@ -381,13 +402,24 @@ class MainWindow(QMainWindow):
         if folder:
             self.open_folder(Path(folder))
 
+    def open_folder(self, folder: Path, start: Path | None = None) -> None:
+        images = list_images(folder)
+        if not images:
+            QMessageBox.warning(self, "No images", f"No images found in {folder}")
+            return
+        if self.is_modified() and not self.save_gt():
+            return
+        self.images = images
+        names = [path.name for path in images]
+        self.go_to(names.index(start.name) if start and start.name in names else 0)
+
     def go_to(self, index: int) -> None:
         if not 0 <= index < len(self.images):
             return
-        # stay on this image if its changes can't be saved
+        # stay on this image if its changes can't be saved, so they aren't lost
         if self.is_modified() and not self.save_gt():
             return
-        # move on even if the image can't be opened
+        # move on even if the image can't be opened, so one bad file doesn't block navigation
         self.index = index
         path = self.images[index]
         self.setWindowTitle(f"LiteLabel - {path.name} ({index + 1}/{len(self.images)})")
