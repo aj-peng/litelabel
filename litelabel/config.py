@@ -4,7 +4,7 @@ import yaml
 
 from litelabel.utility import resolve_app_directory
 
-INHERITED_KEYS = ('gt_file_ext', 'gt_merged', 'delimiter', 'classes_set')
+INHERITED_KEYS = ('gt_file_ext', 'gt_merged', 'delimiter', 'classes_set', 'gt_path_root')
 SPECIFIERS = {
     'iname', 'classid', 'cname', 'difficult',
     'x1', 'y1', 'x2', 'y2', 'cx', 'cy', 'w', 'h',
@@ -13,7 +13,8 @@ SPECIFIERS = {
 AXES = {'x': ('x1', 'x2', 'cx', 'w'), 'y': ('y1', 'y2', 'cy', 'h')}
 GT_FILE_EXTS = ('txt', 'csv', 'xml')
 
-def load_config(path: Path|None=None) -> dict:
+
+def load_config(path: Path | None = None) -> dict:
     path = path or resolve_app_directory() / "config.yml"
     if not path.is_file():
         raise FileNotFoundError(f"Config file not found: {path}")
@@ -30,8 +31,10 @@ def load_config(path: Path|None=None) -> dict:
         raise ValueError(f"Config file has no settings: {path}")
     return config
 
+
 def list_formats(config: dict) -> list[str]:
     return [f"format{n}" for n in range(100) if f"format{n}" in config]
+
 
 def resolve_format(config: dict, key: str) -> dict:
     if key not in config:
@@ -44,6 +47,7 @@ def resolve_format(config: dict, key: str) -> dict:
         number = key.removeprefix('format')
         fmt['name'] = f"[fmt{number}] [{', '.join(map(str, fmt.get('data_fmt', [])))}]"
     return fmt
+
 
 def validate_format(config: dict, key: str, fmt: dict) -> None:
     data_fmt = fmt.get('data_fmt')
@@ -74,6 +78,7 @@ def validate_format(config: dict, key: str, fmt: dict) -> None:
     classes_set = fmt.get('classes_set')
     if not isinstance(classes_set, str) or not isinstance(config.get(classes_set), list):
         raise ValueError(f"{key}: classes_set '{classes_set}' is not a class list in the config")
+
 
 def load_formats(config: dict) -> dict[str, dict]:
     formats = {}
