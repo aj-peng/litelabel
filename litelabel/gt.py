@@ -1,11 +1,12 @@
+import os
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from litelabel.config import AXES
 from litelabel.utility import write_atomic
 
-
 VOC_CORNERS = (('xmin', 'x1'), ('ymin', 'y1'), ('xmax', 'x2'), ('ymax', 'y2'))
+
 
 def compute_fields(box: dict, width: int, height: int, classes: list[str], image_name: str) -> dict:
     x1, y1, x2, y2 = box['x1'], box['y1'], box['x2'], box['y2']
@@ -22,9 +23,11 @@ def compute_fields(box: dict, width: int, height: int, classes: list[str], image
         'ncx': cx / width, 'ncy': cy / height, 'nw': w / width, 'nh': h / height,
     }
 
-def format_value(value: str|int|float) -> str:
+
+def format_value(value: str | int | float) -> str:
     # 6 significant digits: 200.0 -> '200', 0.41666... -> '0.416667'
     return value if isinstance(value, str) else f"{value:g}"
+
 
 def format_row(fields: dict, data_fmt: list[str]) -> list[str]:
     row = []
@@ -34,6 +37,7 @@ def format_row(fields: dict, data_fmt: list[str]) -> list[str]:
         else:
             row.append(format_value(fields[spec]))
     return row
+
 
 def parse_row(row: list[str], data_fmt: list[str]) -> dict:
     if len(row) != len(data_fmt):
@@ -51,11 +55,12 @@ def parse_row(row: list[str], data_fmt: list[str]) -> dict:
             fields[spec] = float(value)
     return fields
 
+
 def resolve_span(
-        start: float|None,
-        end: float|None,
-        center: float|None,
-        size: float|None
+        start: float | None,
+        end: float | None,
+        center: float | None,
+        size: float | None
 ) -> tuple[float, float]:
     if start is not None and end is not None:
         return start, end
@@ -70,6 +75,7 @@ def resolve_span(
     if center is not None and end is not None:
         return 2 * center - end, end
     raise ValueError("Not enough coordinates to rebuild the box")
+
 
 def build_box(fields: dict, width: int, height: int, classes: list[str]) -> dict:
     if 'classid' in fields:
@@ -96,19 +102,22 @@ def build_box(fields: dict, width: int, height: int, classes: list[str]) -> dict
         'difficult': fields.get('difficult', 0),
     }
 
+
 def resolve_delimiter(fmt: dict) -> str:
     # apply the delimiter setting to txt; csv is always comma-separated
     return fmt['delimiter'] if fmt['gt_file_ext'] == 'txt' else ','
+
 
 def write_gt_file(path: Path, rows: list[list[str]], fmt: dict) -> None:
     delimiter = resolve_delimiter(fmt)
     write_atomic(path, ''.join(delimiter.join(row) + '\n' for row in rows))
 
-def resolve_gt_path(image_path: Path, fmt: dict, gt_path_root: str|None=None) -> Path:
-    # an absolute root replaces the image folder; a relative one goes inside it
-    gt_dir = image_path.parent / (gt_path_root or '')
+
+def resolve_gt_path(image_path: Path, fmt: dict, gt_path_root: str | None = None) -> Path:
+    gt_dir = Path(os.path.normpath(image_path.parent / (gt_path_root or '')))
     name = image_path.parent.name if fmt['gt_merged'] else image_path.stem
     return gt_dir / f"{name}.{fmt['gt_file_ext']}"
+
 
 def read_gt_file(path: Path, fmt: dict) -> list[list[str]]:
     if not path.is_file():
@@ -123,13 +132,14 @@ def read_gt_file(path: Path, fmt: dict) -> list[list[str]]:
                 rows.append(line.split() if delimiter == ' ' else line.split(delimiter))
     return rows
 
+
 def load_boxes(
         image_path: Path,
         width: int,
         height: int,
         fmt: dict,
         classes: list[str],
-        gt_path_root: str|None=None
+        gt_path_root: str | None = None
 ) -> list[dict]:
     gt_path = resolve_gt_path(image_path, fmt, gt_path_root)
     try:
@@ -144,6 +154,7 @@ def load_boxes(
     except ValueError as error:
         raise ValueError(f"{gt_path}: {error}") from error
 
+
 def save_boxes(
         image_path: Path,
         boxes: list[dict],
@@ -151,7 +162,7 @@ def save_boxes(
         height: int,
         fmt: dict,
         classes: list[str],
-        gt_path_root: str|None=None
+        gt_path_root: str | None = None
 ) -> None:
     for box in boxes:
         if not 0 <= box['cls'] < len(classes):
@@ -168,13 +179,14 @@ def save_boxes(
         rows = sorted(others + rows, key=lambda row: row[index].strip())
     write_gt_file(gt_path, rows, fmt)
 
+
 def build_voc(
         image_path: Path,
         boxes: list[dict],
         width: int,
         height: int,
         classes: list[str],
-        depth: int=3
+        depth: int = 3
 ) -> ET.Element:
     annotation = ET.Element('annotation')
     ET.SubElement(annotation, 'folder').text = image_path.parent.name
@@ -192,9 +204,11 @@ def build_voc(
             ET.SubElement(bndbox, tag).text = format_value(fields[key])
     return annotation
 
+
 def write_voc_file(path: Path, annotation: ET.Element) -> None:
     ET.indent(annotation)
     write_atomic(path, ET.tostring(annotation, encoding='unicode') + '\n')
+
 
 def read_voc_file(path: Path) -> list[dict]:
     if not path.is_file():
