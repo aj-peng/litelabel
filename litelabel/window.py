@@ -342,8 +342,8 @@ class MainWindow(QMainWindow):
     def load_gt(self) -> None:
         width, height = self.view.image_size()
         try:
-            boxes = load_boxes(self.image_path, width, height, self.current_format(), self.current_classes(),
-                               self.config.get('gt_path_root'))
+            fmt = self.current_format()
+            boxes = load_boxes(self.image_path, width, height, fmt, self.current_classes(), fmt.get('gt_path_root'))
         except ValueError as error:
             QMessageBox.warning(self, "Could not load GT", str(error))
             return
@@ -355,7 +355,7 @@ class MainWindow(QMainWindow):
         boxes = self.view.get_boxes()
         width, height = self.view.image_size()
         fmt = self.current_format()
-        gt_path_root = self.config.get('gt_path_root')
+        gt_path_root = fmt.get('gt_path_root')
         try:
             save_boxes(self.image_path, boxes, width, height, fmt, self.current_classes(), gt_path_root)
         except (ValueError, OSError) as error:
