@@ -8,7 +8,10 @@ IMAGE_EXTS = ('.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp')
 def resolve_app_directory() -> Path:
     # the exe's folder when packaged, otherwise the repo root one level above this package
     if getattr(sys, 'frozen', False):
-        return Path(sys.executable).resolve().parent
+        executable = Path(sys.executable).resolve()
+        if executable.parent.name == 'MacOS' and executable.parents[1].name == 'Contents':
+            return executable.parents[3]
+        return executable.parent
     return Path(__file__).resolve().parents[1]
 
 
